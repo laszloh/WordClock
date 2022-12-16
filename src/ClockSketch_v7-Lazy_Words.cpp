@@ -24,7 +24,7 @@
 
 // ESP8266 - uncomment to compile this sketch for ESP8266 1.0 / ESP8266, make sure to select the proper board
 // type inside the IDE! This mode is NOT supported and only experimental!
-// #define ESP8266
+#define ESP8266
 
 // ESP32 - uncomment to compile this sketch for ESP8266 1.0 / ESP32, make sure to select the proper board
 // type inside the IDE! This mode is NOT supported and only experimental!
@@ -42,7 +42,7 @@
 // DS1302 are correct in the parameters section further down!
 // #define RTC_DS1302
 // #define RTC_DS1307
-// #define RTC_DS3231
+#define RTC_DS3231
 
 // autoDST - uncomment to enable automatic DST switching, check Time Change Rules below!
 // #define AUTODST
@@ -109,6 +109,7 @@ constexpr const char *wifiPWD = "5up3r1337r0xX0r!";
 /* I recommend using a local ntp service (many routers offer them), don't spam public ones with dozens
    of requests a day, get a rtc! ^^                                                                    */
 #define NTPHOST "europe.pool.ntp.org"
+String ntpServer = NTPHOST;
 // #define NTPHOST "192.168.2.1"
 #ifndef AUTODST
 #define AUTODST
@@ -183,8 +184,8 @@ uint16_t lastAvgLDR = 0;            // last average LDR value we got
 
 /* Start button config/pins----------------------------------------------------------------------------- */
 #ifdef ESP8266
-constexpr uint8_t buttonA = 0; // momentary push button, 1 pin to gnd, 1 pin to d7 / GPIO_13
-constexpr uint8_t buttonB = 3; // momentary push button, 1 pin to gnd, 1 pin to d5 / GPIO_14
+constexpr uint8_t buttonA = 13; // momentary push button, 1 pin to gnd, 1 pin to d7 / GPIO_13
+constexpr uint8_t buttonB = 15; // momentary push button, 1 pin to gnd, 1 pin to d5 / GPIO_14
 #elif defined(ESP32)
 constexpr uint8_t buttonA = 3; // momentary push button, 1 pin to gnd, 1 pin to d3
 constexpr uint8_t buttonB = 4; // momentary push button, 1 pin to gnd, 1 pin to d4
@@ -220,7 +221,6 @@ constexpr uint8_t fadeDelay = 30; // milliseconds between each fading step, 5-25
 #endif
 #ifdef USEWIFI
 #include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
 #include <WiFiUdp.h>
 #endif
 #elif defined(ESP32)
@@ -246,7 +246,7 @@ WiFiManager wm;
 #ifdef USENTP
 #include <NTPClient.h>
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, NTPHOST, 0, 60000);
+NTPClient timeClient(ntpUDP, ntpServer.c_str(), 0, 60000);
 #endif
 
 #ifdef DEBUG
@@ -490,6 +490,39 @@ void syncHelper();
 time_t getTimeNTP();
 void saveWifiManagerParameters();
 
+const char *brightnessSelector PROGMEM = "<br/>"
+                                         "<p>Brightness</p>"
+                                         "<input style='display: inline-block;' type='radio' id='choice1' name='brightness' value=0>"
+                                         "<label for='choice1'>Low</label><br/>"
+                                         "<input style='display: inline-block;' type='radio' id='choice2' name='brightness' value=1>"
+                                         "<label for='choice2'>Medium</label><br/>"
+                                         "<input style='display: inline-block;' type='radio' id='choice3' name='brightness' value=2>"
+                                         "<label for='choice3'>high</label><br/>";
+const char *paletteSelector PROGMEM = "<br/>"
+                                      "<label for='palette_select'>Color Palette</label>"
+                                      "<select name='palette_select' id='palette_select' class='button'>"
+                                      "<option value=0 selected>Red-Blue</option>"
+                                      "<option value=1>Orange Fire</option>"
+                                      "<option value=2>Blue Ice</option>"
+                                      "<option value=3>Rainbow</option>"
+                                      "<option value=4>Party</option>"
+                                      "<option value=5>Green</option>"
+                                      "</select>";
+
+void eepromSaveString(const int addr, const String &str) {
+    EEPROM.write(addr, str.length());
+    for(auto i = 0; i < str.length(); i++)
+        EEPROM.write(addr + 1 + i, str[i]);
+}
+
+String eepromLoadString(const int addr) {
+    const auto len = EEPROM.read(addr);
+    char buffer[len + 1] = {0x00};
+    for(auto i = 0; i < len; i++)
+        buffer[i] = EEPROM.read(addr + 1 + i);
+    return String(buffer);
+}
+
 void setup() {
 
     setupSerial();
@@ -589,12 +622,40 @@ void setup() {
     EEPROM.begin(512);
 #ifdef USEWIFI // ...and if using WiFi.....
     log_d("Starting up WiFi...");
+    bool saveConfig = false;
 
-    WiFiManagerParameter ntpServer("ntp_server", "NTP Server", NTPHOST, 40);
+    WiFiManagerParameter ntpServerParam("ntp_server", "NTP Server", NTPHOST, 40);
+    WiFiManagerParameter brightnessParam(brightnessSelector);
+    WiFiManagerParameter paletteParam(paletteSelector);
 
-    wm.addParameter(&ntpServer);
-    wm.setSaveParamsCallback(saveWifiManagerParameters);
+    wm.addParameter(&ntpServerParam);
+    wm.addParameter(&brightnessParam);
+    wm.addParameter(&paletteParam);
+    wm.setSaveParamsCallback([&saveConfig]() { saveConfig = true; });
     wm.autoConnect(WM_PORTAL_NAME);
+
+    // we finished with the portal
+    if(saveConfig) {
+        // changes were made
+        const String strPalette = paletteParam.getValue();
+        EEPROM.write(0, uint8_t(strPalette.toInt()));
+
+        const String strBrightness = brightnessParam.getValue();
+        brightness = uint8_t(strBrightness.toInt());
+        EEPROM.write(1, brightness);
+
+        const char *strNewServer = ntpServerParam.getValue();
+        if(strlen(strNewServer) <= 255) {
+            ntpServer = strNewServer;
+            eepromSaveString(2, ntpServer);
+        }
+
+        EEPROM.commit();
+    } else {
+        // load config
+        brightness = EEPROM.read(1);
+        ntpServer = eepromLoadString(2);
+    }
 #endif
 #endif
 
@@ -619,6 +680,8 @@ void setup() {
 #endif
 
 #ifdef USENTP
+    timeClient.setPoolServerName(ntpServer.c_str());
+    timeClient.begin();
     syncHelper();
 #endif
 
@@ -750,10 +813,8 @@ void loop() {
             doUpdate = true;
     }
 
-    if(doUpdate) { // this will update the led array if doUpdate is true because of a new second from the rtc
-#ifdef USERTC
+    if(doUpdate) {        // this will update the led array if doUpdate is true because of a new second from the rtc
         setTime(sysTime); // sync system time to rtc every second
-#endif
 #ifdef LEDSTUFF
         FastLED.clear();      // 1A - clear all leds...
         displayTime(sysTime); // 2A - output sysTime/rtcTime to the led array..
@@ -950,12 +1011,10 @@ void setupClock() {
 #ifdef USERTC
     writeTime = {1970 + setupTime.Year, setupTime.Month, setupTime.Day, setupTime.Hour, setupTime.Minute, setupTime.Second};
     Rtc.SetDateTime(writeTime);
-    setTime(makeTime(setupTime));
     log_d("RTC time set %d", makeTime(setupTime));
-    printTime();
-#else
-    setTime(makeTime(setupTime));
 #endif
+    setTime(makeTime(setupTime));
+    printTime();
     clockStatus = 0;
     LOG("setupClock done");
 }
@@ -1223,7 +1282,7 @@ uint8_t inputButtons() {
 /* This syncs system time to the RTC at startup and will periodically do other sync related
    things, like syncing rtc to ntp time */
 void syncHelper() {
-    static CEveryNMinutes ntpUpdate(5);
+    static CEveryNSeconds ntpUpdate(60);
 
     if(ntpUpdate) {
         if(clockStatus != 1) {
@@ -1271,7 +1330,7 @@ time_t getTimeNTP() {
     unsigned long startTime = millis();
     time_t timeNTP;
     if(WiFi.status() != WL_CONNECTED)
-        LOG("getTimeNTP(): Not connected, WiFi.status is %d\n", WiFi.status());
+        log_e("Not connected, WiFi.status is %d", WiFi.status());
     // Sometimes the connection doesn't work right away although status is WL_CONNECTED...
     // ...so we'll wait a moment before causing network traffic
     while(millis() - startTime < 2000)
@@ -1279,12 +1338,12 @@ time_t getTimeNTP() {
     timeClient.update();
     timeNTP = timeClient.getEpochTime();
     if(timeNTP < 100)
-        LOG("getTimeNTP(): NTP returned %d - trying again...\n", timeNTP);
+        log_e("NTP returned %d - trying again...", timeNTP);
     timeClient.update();
     timeNTP = timeClient.getEpochTime();
     if(timeNTP < 100)
-        LOG("getTimeNTP(): NTP returned %d - giving up\n", timeNTP);
-    LOG("getTimeNTP() done\n");
+        log_e("NTP returned %d - giving up", timeNTP);
+    log_d("getTimeNTP done");
     return timeNTP;
 }
 #endif
@@ -1343,5 +1402,3 @@ uint8_t dbgInput() {
 #endif
     return 0;
 }
-
-void saveWifiManagerParameters() { }
