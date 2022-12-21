@@ -25,6 +25,7 @@
 // ESP8266 - uncomment to compile this sketch for ESP8266 1.0 / ESP8266, make sure to select the proper board
 // type inside the IDE! This mode is NOT supported and only experimental!
 #define ESP8266
+#define LIGHT_SLEEP
 
 // ESP32 - uncomment to compile this sketch for ESP8266 1.0 / ESP32, make sure to select the proper board
 // type inside the IDE! This mode is NOT supported and only experimental!
@@ -87,6 +88,7 @@ RtcDS1307<TwoWire> Rtc(Wire);
 #include <Wire.h>
 RtcDS3231<TwoWire> Rtc(Wire);
 #define RTCTYPE "DS3231"
+#define RTCINTPIN 12
 #define USERTC
 #endif
 
@@ -489,6 +491,7 @@ uint8_t inputButtons();
 void syncHelper();
 time_t getTimeNTP();
 void saveWifiManagerParameters();
+void armRTCAlarm();
 
 const char *brightnessSelector PROGMEM = "<br/>"
                                          "<p>Brightness</p>"
@@ -661,6 +664,13 @@ void setup() {
 
 #ifdef USERTC
     Rtc.Begin();
+    Wire.setClock(400000);
+#ifdef LIGHT_SLEEP
+    Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeAlarmTwo);
+#endif
+    if(!Rtc.GetIsRunning())
+        Rtc.SetIsRunning(true);
+
     log_i("RTC.begin(), 2 second safety delay before doing any read/write actions!");
     unsigned long tmp_time = millis();
     while(millis() - tmp_time < 2000)
@@ -802,14 +812,21 @@ void loop() {
         adjustTime(15);  // ...add 15 seconds to current time
 #endif
 
+#ifdef LIGHT_SLEEP
+    // we always check the RTC, since we were woken up here
+    constexpr bool checkRTC = true;
+#else
     static CEveryNMillis checkRTC(50);
+#endif
     if(checkRTC) {
 #ifdef USERTC
         sysTime = Rtc.GetDateTime().Epoch32Time();
 #else
         sysTime = now();
 #endif
+#ifndef LIGHT_SLEEP
         if(lastSecondDisplayed != second(sysTime))
+#endif
             doUpdate = true;
     }
 
@@ -851,6 +868,35 @@ void loop() {
 #endif
 
     lastInput = inputButtons();
+
+#if defined(LIGHT_SLEEP) && defined(USERTC)
+    armRTCAlarm();
+
+    constexpr uint32_t timeout = UINT32_MAX;
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+    wifi_fpm_open();
+    wifi_enable_gpio_wakeup(RTCINTPIN, GPIO_PIN_INTR_LOLEVEL);
+    wifi_enable_gpio_wakeup(buttonA, GPIO_PIN_INTR_LOLEVEL);
+    wifi_enable_gpio_wakeup(buttonB, GPIO_PIN_INTR_LOLEVEL);
+    wifi_fpm_do_sleep(timeout);
+    wifi_fpm_close();
+    WiFi.mode(WIFI_STA);
+    WiFi.begin();
+#endif
+}
+
+void armRTCAlarm() {
+    constexpr int interval = 5;
+
+    const auto sysTime = Rtc.GetDateTime().Epoch32Time();
+    auto mins = minute(sysTime) + interval;
+    if(mins != 60)
+        mins -= 60;
+
+    const DS3231AlarmTwo alarm(0, 0, mins, DS3231AlarmTwoControl::DS3231AlarmTwoControl_MinutesMatch);
+    Rtc.SetAlarmTwo(alarm);
 }
 
 /* */
@@ -1311,11 +1357,13 @@ void syncHelper() {
 #ifdef USERTC
         RtcDateTime ntpTimeConverted = {year(ntpTime), month(ntpTime), day(ntpTime), hour(ntpTime), minute(ntpTime), second(ntpTime)};
         RtcDateTime rtcTime = Rtc.GetDateTime(); // get current time from the rtc....
-#ifdef DEBUG
-        if(ntpTime > 100) {
+
+        const uint32_t delta = std::abs(int(rtcTime.Epoch32Time() - ntpTimeConverted.Epoch32Time()));
+        if(ntpTime > 100 && delta > 100) {
             Rtc.SetDateTime(ntpTimeConverted);
+            if(!Rtc.GetIsRunning())
+                Rtc.SetIsRunning(true);
         }
-#endif
 #else
         log_d("No RTC configured, using system time");
         log_d("sysTime was %d", now());
