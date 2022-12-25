@@ -25,7 +25,7 @@
 // ESP8266 - uncomment to compile this sketch for ESP8266 1.0 / ESP8266, make sure to select the proper board
 // type inside the IDE! This mode is NOT supported and only experimental!
 #define ESP8266
-#define LIGHT_SLEEP
+// #define LIGHT_SLEEP
 
 // ESP32 - uncomment to compile this sketch for ESP8266 1.0 / ESP32, make sure to select the proper board
 // type inside the IDE! This mode is NOT supported and only experimental!
@@ -88,7 +88,7 @@ RtcDS1307<TwoWire> Rtc(Wire);
 #include <Wire.h>
 RtcDS3231<TwoWire> Rtc(Wire);
 #define RTCTYPE "DS3231"
-#define RTCINTPIN 12
+#define RTCINTPIN 2
 #define USERTC
 #endif
 
@@ -187,7 +187,7 @@ uint16_t lastAvgLDR = 0;            // last average LDR value we got
 /* Start button config/pins----------------------------------------------------------------------------- */
 #ifdef ESP8266
 constexpr uint8_t buttonA = 13; // momentary push button, 1 pin to gnd, 1 pin to d7 / GPIO_13
-constexpr uint8_t buttonB = 15; // momentary push button, 1 pin to gnd, 1 pin to d5 / GPIO_14
+constexpr uint8_t buttonB = 12; // momentary push button, 1 pin to gnd, 1 pin to d5 / GPIO_14
 #elif defined(ESP32)
 constexpr uint8_t buttonA = 3; // momentary push button, 1 pin to gnd, 1 pin to d3
 constexpr uint8_t buttonB = 4; // momentary push button, 1 pin to gnd, 1 pin to d4
@@ -240,6 +240,8 @@ constexpr uint8_t fadeDelay = 30; // milliseconds between each fading step, 5-25
 #ifdef USEWIFI
 
 #include <WiFiManager.h>
+#include "WordClockParameter.h"
+
 WiFiManager wm;
 #define WM_PORTAL_NAME "WordClock"
 
@@ -256,11 +258,9 @@ NTPClient timeClient(ntpUDP, ntpServer.c_str(), 0, 60000);
 #include "esp-hal-log.h"
 #include <SoftwareSerial.h>
 
-constexpr SoftwareSerialConfig swSerialConfig = SWSERIAL_8E1;
-constexpr int swSerialBaud = 19200;
-constexpr int swSerialTxPin = 1;
-constexpr int swSerialRxPin = -1;
-SoftwareSerial logger;
+constexpr int serialBaud = 19200;
+constexpr SerialConfig serialConfig = SERIAL_8N1;
+constexpr SerialMode serialMode = SERIAL_FULL;
 
 int log_printf(PGM_P fmt, ...) {
     va_list arg;
@@ -278,13 +278,13 @@ int log_printf(PGM_P fmt, ...) {
         vsnprintf_P(buffer, len + 1, fmt, arg);
         va_end(arg);
     }
-    len = logger.write((const uint8_t *)buffer, len);
+    len = Serial.write((const uint8_t *)buffer, len);
     if(buffer != temp)
         delete[] buffer;
     return len;
 }
 
-void setupSerial() { logger.begin(swSerialBaud, swSerialConfig, swSerialRxPin, swSerialTxPin); }
+void setupSerial() { Serial.begin(serialBaud, serialConfig, serialMode); }
 
 #else
 
@@ -325,7 +325,7 @@ bool firstLoop = true;
 #ifdef LEDSTUFF
 #ifdef ESP8266
 #define FASTLED_RAW_PIN_ORDER // this means we'll be using the raw esp8266 pin order -> GPIO_12, which is d6 on ESP8266
-#define LED_PIN 2             // led data in connected to GPIO_12 (d6/ESP8266)
+#define LED_PIN 15            // led data in connected to GPIO_12 (d6/ESP8266)
 #elif defined(ESP32)
 #define FASTLED_RAW_PIN_ORDER // this means we'll be using the raw esp8266 pin order -> GPIO_12, which is d6 on ESP8266
 #define LED_PIN 12            // led data in connected to GPIO_12 (d6/ESP8266)
@@ -341,7 +341,7 @@ bool firstLoop = true;
 #endif
 
 #ifdef LW_GER
-#define LED_COUNT 97
+#define LED_COUNT 98
 #endif
 
 #include <FastLED.h>
@@ -414,10 +414,10 @@ const uint8_t wordGroups[10][2] PROGMEM = {
     {90, 92}, // "IST"       1
     {94, 97}, // "FÜNF"      2
     {83, 86}, // "ZEHN"      3
-    {66, 71}, // "VIERTEL"   4
+    {66, 72}, // "VIERTEL"   4
     {76, 82}, // "ZWANZIG"   5
     {47, 50}, // "HALB"      6
-    {56, 62}, // "VOR"       7
+    {56, 58}, // "VOR"       7
     {61, 64}, // "NACH"      8
     {0, 2}    // "UHR"       9
 };
@@ -432,7 +432,7 @@ const uint8_t hourGroups[13][2] PROGMEM = {
     {22, 25}, // "FÜNF"
     {33, 37}, // "SECHS"
     {16, 21}, // "SIEBEN"
-    {39, 41}, // "ACHT"
+    {38, 41}, // "ACHT"
     {4, 7},   // "NEUN"
     {7, 10},  // "ZEHN"
     {30, 32}, // "ELF"
@@ -482,7 +482,7 @@ void showHour(uint8_t h);
 void paletteSwitcher();
 void brightnessSwitcher();
 void printTime();
-void displayTime(time_t t);
+void displayTime(time_t t, bool localTime = true);
 void colorizeOutput(uint8_t mode);
 void pixelFader();
 void setupClock();
@@ -493,28 +493,35 @@ time_t getTimeNTP();
 void saveWifiManagerParameters();
 void armRTCAlarm();
 
+const char *dateTime PROGMEM = "<br/>";
+
 const char *brightnessSelector PROGMEM = "<br/>"
                                          "<p>Brightness</p>"
-                                         "<input style='display: inline-block;' type='radio' id='choice1' name='brightness' value=0>"
+                                         "<input style='display: inline-block;' type='radio' id='choice1' name='brightness' value='0'>"
                                          "<label for='choice1'>Low</label><br/>"
-                                         "<input style='display: inline-block;' type='radio' id='choice2' name='brightness' value=1>"
+                                         "<input style='display: inline-block;' type='radio' id='choice2' name='brightness' value='1'>"
                                          "<label for='choice2'>Medium</label><br/>"
-                                         "<input style='display: inline-block;' type='radio' id='choice3' name='brightness' value=2>"
+                                         "<input style='display: inline-block;' type='radio' id='choice3' name='brightness' value='2'>"
                                          "<label for='choice3'>high</label><br/>";
 const char *paletteSelector PROGMEM = "<br/>"
                                       "<label for='palette_select'>Color Palette</label>"
-                                      "<select name='palette_select' id='palette_select' class='button'>"
-                                      "<option value=0 selected>Red-Blue</option>"
-                                      "<option value=1>Orange Fire</option>"
-                                      "<option value=2>Blue Ice</option>"
-                                      "<option value=3>Rainbow</option>"
-                                      "<option value=4>Party</option>"
-                                      "<option value=5>Green</option>"
+                                      "<select name='palette_select' id='palette' class='button'>"
+                                      "<option value='0' selected>Red-Blue</option>"
+                                      "<option value='1'>Orange Fire</option>"
+                                      "<option value='2'>Blue Ice</option>"
+                                      "<option value='3'>Rainbow</option>"
+                                      "<option value='4'>Party</option>"
+                                      "<option value='5'>Green</option>"
                                       "</select>";
+
+WiFiManagerParameter ntpServerParam("ntp_server", "NTP Server", NTPHOST, 40);
+WiFiManagerParameter brightnessParam(brightnessSelector);
+WiFiManagerParameter paletteParam(paletteSelector);
+
 
 void eepromSaveString(const int addr, const String &str) {
     EEPROM.write(addr, str.length());
-    for(auto i = 0; i < str.length(); i++)
+    for(size_t i = 0; i < str.length(); i++)
         EEPROM.write(addr + 1 + i, str[i]);
 }
 
@@ -524,6 +531,26 @@ String eepromLoadString(const int addr) {
     for(auto i = 0; i < len; i++)
         buffer[i] = EEPROM.read(addr + 1 + i);
     return String(buffer);
+}
+
+void saveEEPROMSettings() {
+    const String strPalette = paletteParam.getValue();
+    log_d("palette: %s (%d)", strPalette.c_str(), uint8_t(strPalette.toInt()));
+    EEPROM.write(0, uint8_t(strPalette.toInt()));
+
+    const String strBrightness = brightnessParam.getValue();
+    brightness = uint8_t(strBrightness.toInt());
+    log_d("brightness: %s (%d)", strBrightness.c_str(), brightness);
+    EEPROM.write(1, brightness);
+
+    const char *strNewServer = ntpServerParam.getValue();
+    log_d("NTP server: %s", strNewServer);
+    if(strlen(strNewServer) <= 255) {
+        ntpServer = strNewServer;
+        eepromSaveString(2, ntpServer);
+    }
+
+    EEPROM.commit();
 }
 
 void setup() {
@@ -555,7 +582,7 @@ void setup() {
 #if defined(ESP8266) || defined(ESP32)
     log_i("Configured for ESP8266 / ESP32");
 #ifdef USEWIFI
-    log_i("WiFi enabled\n");
+    log_i("WiFi enabled");
 #endif
 #ifdef USENTP
     log_i("NTP enabled, NTPHOST: " NTPHOST);
@@ -573,9 +600,9 @@ void setup() {
 #endif
 
 #ifdef LEDSTUFF
-    FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, LED_COUNT).setCorrection(TypicalSMD5050).setTemperature(DirectSunlight).setDither(1);
+    FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, leds.size()).setCorrection(TypicalSMD5050).setTemperature(DirectSunlight).setDither(1);
     FastLED.setMaxPowerInVoltsAndMilliamps(5, LED_PWR_LIMIT);
-    FastLED.clear();
+    FastLED.clear(true);
     FastLED.show();
 #endif
 
@@ -585,11 +612,11 @@ void setup() {
 #ifdef DEBUG
     if(digitalRead(buttonA) == LOW || digitalRead(buttonB) == LOW) {
         if(digitalRead(buttonA) == LOW) {
-            log_d("buttonA is LOW / pressed - check wiring!\n");
+            log_d("buttonA is LOW / pressed - check wiring!");
         }
         if(digitalRead(buttonB) == LOW) {
-            log_d("buttonB is LOW / pressed - check wiring!\n");
-            log_d("Lazy Words test display starting in 3 seconds...\n");
+            log_d("buttonB is LOW / pressed - check wiring!");
+            log_d("Lazy Words test display starting in 3 seconds...");
             unsigned long testStart = millis();
             while(millis() - testStart < 3000)
                 yield();
@@ -614,7 +641,7 @@ void setup() {
                     leds[i].setHSV(0, 160, 160);
             }
             FastLED.show();
-            log_d("...done, reset/power cycle to restart.\n");
+            log_d("...done, reset/power cycle to restart.");
             while(1)
                 yield();
         }
@@ -627,33 +654,20 @@ void setup() {
     log_d("Starting up WiFi...");
     bool saveConfig = false;
 
-    WiFiManagerParameter ntpServerParam("ntp_server", "NTP Server", NTPHOST, 40);
-    WiFiManagerParameter brightnessParam(brightnessSelector);
-    WiFiManagerParameter paletteParam(paletteSelector);
-
     wm.addParameter(&ntpServerParam);
     wm.addParameter(&brightnessParam);
     wm.addParameter(&paletteParam);
+
+    brightnessParam.setValue("brightness", brightness);
+    paletteParam.setValue("palette", EEPROM.read(0));
+
     wm.setSaveParamsCallback([&saveConfig]() { saveConfig = true; });
     wm.autoConnect(WM_PORTAL_NAME);
 
     // we finished with the portal
     if(saveConfig) {
         // changes were made
-        const String strPalette = paletteParam.getValue();
-        EEPROM.write(0, uint8_t(strPalette.toInt()));
-
-        const String strBrightness = brightnessParam.getValue();
-        brightness = uint8_t(strBrightness.toInt());
-        EEPROM.write(1, brightness);
-
-        const char *strNewServer = ntpServerParam.getValue();
-        if(strlen(strNewServer) <= 255) {
-            ntpServer = strNewServer;
-            eepromSaveString(2, ntpServer);
-        }
-
-        EEPROM.commit();
+        saveEEPROMSettings();
     } else {
         // load config
         brightness = EEPROM.read(1);
@@ -668,6 +682,8 @@ void setup() {
 #ifdef LIGHT_SLEEP
     Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeAlarmTwo);
 #endif
+    if(!Rtc.IsDateTimeValid())
+        Rtc.SetDateTime(RtcDateTime(2020, 1, 1, 0, 0, 0));
     if(!Rtc.GetIsRunning())
         Rtc.SetIsRunning(true);
 
@@ -690,6 +706,7 @@ void setup() {
 #endif
 
 #ifdef USENTP
+    log_d("Starting ntp with server: %s", ntpServer.c_str());
     timeClient.setPoolServerName(ntpServer.c_str());
     timeClient.begin();
     syncHelper();
@@ -698,8 +715,8 @@ void setup() {
     clockStatus = 0; // change from 1 (startup) to 0 (running mode)
 
     printTime();
-    log_i("Setup done\n");
-    log_i("------------------------------------------------------\n");
+    log_i("Setup done");
+    log_i("------------------------------------------------------");
 }
 
 /* MAIN LOOP */
@@ -786,7 +803,16 @@ void loop() {
             }
             if(lastInput == 3) { // long press button A + button B
 #ifdef USEWIFI                   // if USEWIFI is defined and...
+                bool saveConfig = false;
+                wm.setSaveParamsCallback([&saveConfig]() { saveConfig = true; });
                 wm.startConfigPortal(WM_PORTAL_NAME);
+                if(saveConfig) {
+                    log_d("Saving new setting...");
+                    saveEEPROMSettings();
+                    log_d("Rebooting");
+                    ESP.reset();
+                }
+
 #elif defined(LEDSTUFF) // if USEWIFI is not defined...
                 FastLED.clear();
                 FastLED.show();
@@ -869,22 +895,22 @@ void loop() {
 
     lastInput = inputButtons();
 
-#if defined(LIGHT_SLEEP) && defined(USERTC)
-    armRTCAlarm();
+    // #if defined(LIGHT_SLEEP) && defined(USERTC)
+    //     armRTCAlarm();
 
-    constexpr uint32_t timeout = UINT32_MAX;
-    WiFi.mode(WIFI_OFF);
-    delay(100);
-    wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
-    wifi_fpm_open();
-    wifi_enable_gpio_wakeup(RTCINTPIN, GPIO_PIN_INTR_LOLEVEL);
-    wifi_enable_gpio_wakeup(buttonA, GPIO_PIN_INTR_LOLEVEL);
-    wifi_enable_gpio_wakeup(buttonB, GPIO_PIN_INTR_LOLEVEL);
-    wifi_fpm_do_sleep(timeout);
-    wifi_fpm_close();
-    WiFi.mode(WIFI_STA);
-    WiFi.begin();
-#endif
+    //     constexpr uint32_t timeout = UINT32_MAX;
+    //     WiFi.mode(WIFI_OFF);
+    //     delay(100);
+    //     wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+    //     wifi_fpm_open();
+    //     wifi_enable_gpio_wakeup(RTCINTPIN, GPIO_PIN_INTR_LOLEVEL);
+    //     wifi_enable_gpio_wakeup(buttonA, GPIO_PIN_INTR_LOLEVEL);
+    //     wifi_enable_gpio_wakeup(buttonB, GPIO_PIN_INTR_LOLEVEL);
+    //     wifi_fpm_do_sleep(timeout);
+    //     wifi_fpm_close();
+    //     WiFi.mode(WIFI_STA);
+    //     WiFi.begin();
+    // #endif
 }
 
 void armRTCAlarm() {
@@ -981,7 +1007,7 @@ void pixelFader() {
                 idx++;
             }
             memset(changedPixels, 0, LED_COUNT);
-            log_d("pixel fading sequence took %d ms\n", millis() - firstRun);
+            log_d("pixel fading sequence took %d ms", millis() - firstRun);
         }
     }
 }
@@ -998,7 +1024,7 @@ void readLDR() { // read LDR value 5 times and write average to avgLDR
         tmp = 0;
         runCounter = 0;
         if(dbgLDR)
-            log_d("avgLDR value: %d\n", avgLDR);
+            log_d("avgLDR value: %d", avgLDR);
         if(avgLDR < minBrightness)
             avgLDR = minBrightness;
         if(avgLDR > brightness)
@@ -1008,7 +1034,7 @@ void readLDR() { // read LDR value 5 times and write average to avgLDR
         if(avgLDR <= lowerLimitLDR)
             avgLDR = minBrightness; // if avgLDR is below lowerLimitLDR switch to minBrightness
         if(dbgLDR)
-            log_d("avgLDR adjusted to: %d\n", avgLDR);
+            log_d("avgLDR adjusted to: %d", avgLDR);
     }
     runCounter++;
 }
@@ -1070,21 +1096,26 @@ void colorizeOutput(uint8_t mode) {
        the leds yet using FastLED.show(). This function does the coloring of the right now single colored but "insivible"
        output. This way color updates/cycles aren't tied to updating display contents                                      */
     static uint8_t startColor = 0;
-    static uint8_t colorOffset = 4; // different offsets result in quite different results, depending on the amount of leds inside each segment...
-                                    // ...so it's set inside each color mode if required
-    if(clockStatus == 80)           // 80 -> color preview cylcing after switching in loop()
+    uint8_t colorOffset = 4; // different offsets result in quite different results, depending on the amount of leds inside each segment...
+                             // ...so it's set inside each color mode if required
+    if(clockStatus == 80)    // 80 -> color preview cylcing after switching in loop()
         colorOffset = 20;
-    else
-        colorOffset = 4;
 
     // mode 0 = check every segment if it's lit and assign a color based on led #
     if(mode == 0) {
-        uint8_t idx = 0;
-        for(auto px : leds) {
-            if(px)
-                px = ColorFromPalette(currentPalette, startColor + idx * colorOffset, brightness, LINEARBLEND);
-            idx++;
+        uint8_t i = 0;
+        for(auto i = 0; i < leds.size(); i++) {
+            if(leds[i])
+                leds[i] = ColorFromPalette(currentPalette, startColor + i * colorOffset, brightness, LINEARBLEND);
         }
+        // for(auto px : leds) {
+        //     if(px)
+        //         px = ColorFromPalette(currentPalette, startColor + i * colorOffset, brightness, LINEARBLEND);
+        //     i++;
+        // }
+        // for ( uint8_t i = 0; i < LED_COUNT; i++ ) {
+        //   if ( leds[i] ) leds[i] = ColorFromPalette(currentPalette, startColor + i * colorOffset, brightness, LINEARBLEND);
+        // }
     }
 
     /* clockStatus >= 90 is used for coloring output while in setup mode */
@@ -1108,33 +1139,37 @@ void colorizeOutput(uint8_t mode) {
         }
     }
 
+
 #ifdef FASTFORWARD
-    uint8_t colorDelay = 30;
+    const uint16_t colorChangeInterval = 30;
 #else
-    uint8_t colorDelay = colorSpeed;
+    const uint16_t colorChangeInterval = colorSpeed;
 #endif
-    static CEveryNMillis lastColorChange(colorDelay);
-    if(lastColorChange) {
-        if constexpr(reverseColorCycling)
-            startColor--;
-        else
-            startColor++;
-    }
+    static CEveryNMillis colorChange(colorChangeInterval);
+    colorChange.setPeriod(colorChangeInterval);
+
+    if(colorChange)
+        startColor += (reverseColorCycling) ? -1 : +1;
 
 #ifdef AUTOBRIGHTNESS
     if(nightMode && clockStatus == 0) { // nightmode will overwrite everything that has happened so far...
-        for(auto px : leds) {
-            if(px) {
-                px = CHSV(nightColor[0], 255, nightColor[1]);
-                FastLED.setDither(0);
-            } else
-                FastLED.setDither(1);
-        }
+        if(avgLDR <= minBrightness) {
+            FastLED.setDither(0);
+            for(auto px : leds) {
+                if(px)
+                    px.setHSV(nightColor[0], 255, nightColor[1]); // and assign nightColor to all lit leds. Default is a very dark red.
+            }
+        } else
+            FastLED.setDither(1);
     }
 #endif
 }
 
-void displayTime(time_t t) {
+
+void displayTime(time_t t, bool localTime) {
+    if(localTime)
+        t = myTimeZone.toLocal(t);
+
     if(clockStatus >= 90) // while in setup this will clear the display each time when redrawing
         FastLED.clear();
 
@@ -1235,13 +1270,13 @@ void brightnessSwitcher() {
             brightness = brightnessLevels[currentIndex];
             break;
     }
-    log_d("selected brightness index %n", currentIndex);
+    log_d("selected brightness index %d", currentIndex);
     if(clockStatus == 0) { // only save selected brightness to eeprom if clock is in normal running mode, not while in startup/setup/whatever
         EEPROM.put(1, currentIndex);
 #ifdef ESP8266
         EEPROM.commit();
 #endif
-        log_d("saved index % to eeprom", currentIndex);
+        log_d("saved index %d to eeprom", currentIndex);
     }
     if(currentIndex < 2) {
         currentIndex++;
@@ -1318,7 +1353,7 @@ uint8_t inputButtons() {
         retVal = serialInput;
     }
     if(retVal != 0)
-        LOG("inputButtons(): Return value is: %d - btnRepeatCounter is: %d\n", retVal, btnRepeatCounter);
+        LOG("inputButtons(): Return value is: %d - btnRepeatCounter is: %d", retVal, btnRepeatCounter);
     return retVal;
 }
 
@@ -1330,8 +1365,8 @@ uint8_t inputButtons() {
 void syncHelper() {
     static CEveryNSeconds ntpUpdate(60);
 
-    if(ntpUpdate) {
-        if(clockStatus != 1) {
+    if(ntpUpdate || clockStatus == 1) {
+        if(clockStatus > 1) {
             log_w("Clock is not running!");
             return;
         }
@@ -1353,7 +1388,7 @@ void syncHelper() {
             log_d("Resyncing to NTP...");
 
         ntpTime = getTimeNTP();
-        log_d("NTP result is %d", ntpTime);
+        log_d("NTP result is %lld", ntpTime);
 #ifdef USERTC
         RtcDateTime ntpTimeConverted = {year(ntpTime), month(ntpTime), day(ntpTime), hour(ntpTime), minute(ntpTime), second(ntpTime)};
         RtcDateTime rtcTime = Rtc.GetDateTime(); // get current time from the rtc....
@@ -1385,12 +1420,13 @@ time_t getTimeNTP() {
         yield();
     timeClient.update();
     timeNTP = timeClient.getEpochTime();
-    if(timeNTP < 100)
+    if(timeNTP < 100) {
         log_e("NTP returned %d - trying again...", timeNTP);
-    timeClient.update();
-    timeNTP = timeClient.getEpochTime();
-    if(timeNTP < 100)
-        log_e("NTP returned %d - giving up", timeNTP);
+        timeClient.update();
+        timeNTP = timeClient.getEpochTime();
+        if(timeNTP < 100)
+            log_e("NTP returned %d - giving up", timeNTP);
+    }
     log_d("getTimeNTP done");
     return timeNTP;
 }
@@ -1406,19 +1442,19 @@ void printTime() {
     setTime(tmp2);
     tmp = now();
 #endif
-    log_d("-----------------------------------\n");
-    log_d("System time is: %02d:%02d:%02d\n", hour(tmp), minute(tmp), second(tmp));
-    log_d("System date is: %02d/%02d/%02d (Y/M/D)\n", year(tmp), month(tmp), day(tmp));
+    log_d("-----------------------------------");
+    log_d("System time is: %02d:%02d:%02d", hour(tmp), minute(tmp), second(tmp));
+    log_d("System date is: %02d/%02d/%02d (Y/M/D)", year(tmp), month(tmp), day(tmp));
 #ifdef USERTC
-    log_d("RTC time is: %02d:%02d:%02d\n", hour(tmp2), minute(tmp2), second(tmp2));
-    log_d("RTC date is: %02d/%02d/%02d (Y/M/D)\n", year(tmp2), month(tmp2), day(tmp2));
+    log_d("RTC time is: %02d:%02d:%02d", hour(tmp2), minute(tmp2), second(tmp2));
+    log_d("RTC date is: %02d/%02d/%02d (Y/M/D)", year(tmp2), month(tmp2), day(tmp2));
 #endif
 #ifdef AUTODST
     tmp = myTimeZone.toLocal(tmp);
-    log_d("autoDST time is: %02d:%02d:%02d\n", hour(tmp), minute(tmp), second(tmp));
-    log_d("autoDST date is: %02d/%02d/%02d (Y/M/D)\n", year(tmp), month(tmp), day(tmp));
+    log_d("autoDST time is: %02d:%02d:%02d", hour(tmp), minute(tmp), second(tmp));
+    log_d("autoDST date is: %02d/%02d/%02d (Y/M/D)", year(tmp), month(tmp), day(tmp));
 #endif
-    log_d("-----------------------------------\n");
+    log_d("-----------------------------------");
 }
 
 uint8_t dbgInput() {
