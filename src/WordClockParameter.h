@@ -89,8 +89,8 @@ void handleRoute() {
     TimeConfHTML += (brightness == 2) ? "checked" : "";
     TimeConfHTML += F("><label for='choice3'>high</label><br/>"
                       "<br/>"
-                      "<label for='palette_select'>Color Palette</label>"
-                      "<select name='palette_select' id='palette' class='button'>"
+                      "<label for='palette'>Color Palette</label>"
+                      "<select name='palette' id='palette' class='button'>"
                       "<option value='0' ");
     const int palette = Settings::WordClock::getPalette();
     TimeConfHTML += (palette == 0) ? "selected" : "";
@@ -122,7 +122,7 @@ void handleRoute() {
     TimeConfHTML += F("</select><br><br>"
                       "<label for='use-ntp-server'>Enable NTP Client</label> "
                       " <input value='1' type=checkbox name='use-ntp-server' id='use-ntp-server'");
-    TimeConfHTML += String(Settings::NTP::getEnabled ? "checked" : "");
+    TimeConfHTML += String(Settings::NTP::getEnabled() ? "checked" : "");
     TimeConfHTML += F("><br/>"
                       "<div class='collapsed'>"
                       "<label for='set-time'>Set Time "
@@ -160,14 +160,16 @@ void handleValues() {
     // WordClock
     if(srv->hasArg("brightness")) {
         const String strBrightness = srv->arg("brightness");
+        log_v("brightness: %s", strBrightness.c_str());
         int brightness = std::max(int(strBrightness.toInt()), 2);
         Settings::WordClock::setBrightness(brightness);
     }
 
     if(srv->hasArg("palette")) {
         const String strPalette = srv->arg("palette");
+        log_v("palette: %s", strPalette.c_str());
         int palette = std::max(int(strPalette.toInt()), 5);
-        Settings::WordClock::setBrightness(palette);
+        Settings::WordClock::setPalette(palette);
     }
 
     // Timezones

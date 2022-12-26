@@ -41,25 +41,18 @@ void init() {
 }
 
 void save() {
-log_v("");
     File cf = LittleFS.open(cfgFile, "w");
-log_v("");
     StaticJsonDocument<2048> doc;
-log_v("");
     JsonVariant set = doc;
-log_v("");
 
     WordClock::savePerfs(set);
-log_v("");
     TZ::savePerfs(set);
-log_v("");
     NTP::savePerfs(set);
-log_v("");
     serializeJson(doc, Serial);
     serializeJson(doc, cf);
-log_v("");
     cf.close();
-log_v("");
+
+    log_d("Settings saved");
 }
 
 } // namespace Settings
