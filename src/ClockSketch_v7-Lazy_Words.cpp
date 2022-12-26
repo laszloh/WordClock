@@ -14,6 +14,10 @@
 -------------------------------------------------------------------------------------------------------------- */
 
 #include <Arduino.h>
+#include <coredecls.h> // optional settimeofday_cb() callback to check on server
+#include <sys/time.h>
+#include <time.h> // for time() ctime() ...
+#include <sntp.h>
 
 // comment below to disable serial in-/output and free some RAM
 #define DEBUG
@@ -60,8 +64,7 @@
 
 /* ----------------------------------------------------------------------------------------------------- */
 
-#include <EEPROM.h>  // required for reading/saving settings to eeprom
-#include <TimeLib.h> // "Time" by Michael Margolis, used in all configs
+#include <EEPROM.h> // required for reading/saving settings to eeprom
 
 /* Start RTC config/parameters--------------------------------------------------------------------------
    Check pin assignments for DS1302 (SPI), others are I2C (A4/A5 on Arduino by default)
@@ -118,30 +121,6 @@ String ntpServer = NTPHOST;
 #endif
 #endif
 /* End NTP config/parameters---------------------------------------------------------------------------- */
-
-/* Start autoDST config/parameters ----------------------------------------------------------------------
-   Comment/uncomment/add TimeChangeRules as needed, only use 2 (tcr1, tcr2), comment out unused ones!
-   Enabling/disabling autoDST will require to set time again, clock will be running in UTC time if autoDST
-   is enabled, only display times are adjusted (check serial monitor with DEBUG defined!)
-   This will also add options for setting the date (Year/Month/Day) when setting time on the clock!      */
-#ifdef AUTODST
-#include <Timezone.h> // "Timezone" by Jack Christensen
-TimeChangeRule *tcr;
-//-----------------------------------------------
-/* US */
-// constexpr TimeChangeRule tcr1 = {"tcr1", First, Sun, Nov, 2, -360};   // utc -6h, valid from first sunday of november at 2am
-// constexpr TimeChangeRule tcr2 = {"tcr2", Second, Sun, Mar, 2, -300};  // utc -5h, valid from second sunday of march at 2am
-//-----------------------------------------------
-/* Europe */
-constexpr TimeChangeRule tcr1 = {
-    "tcr1", Last, Sun, Oct,
-    3,      60}; // standard/winter time, valid from last sunday of october at 3am, UTC + 1 hour (+60 minutes) (negative value like -300 for utc -5h)
-constexpr TimeChangeRule tcr2
-    = {"tcr2", Last, Sun, Mar, 2, 120}; // daylight/summer time, valid from last sunday of march at 2am, UTC + 2 hours (+120 minutes)
-//-----------------------------------------------
-Timezone myTimeZone(tcr1, tcr2);
-#endif
-/* End autoDST config/parameters ----------------------------------------------------------------------- */
 
 /* Start autoBrightness config/parameters -------------------------------------------------------------- */
 constexpr uint8_t upperLimitLDR
@@ -239,26 +218,21 @@ constexpr uint8_t fadeDelay = 30; // milliseconds between each fading step, 5-25
 
 #ifdef USEWIFI
 
-#include <WiFiManager.h>
 #include "WordClockParameter.h"
+#include <WiFiManager.h>
 
 WiFiManager wm;
 #define WM_PORTAL_NAME "WordClock"
 
 #endif
 
-#ifdef USENTP
-#include <NTPClient.h>
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, ntpServer.c_str(), 0, 60000);
-#endif
 
 #ifdef DEBUG
 
 #include "esp-hal-log.h"
 #include <SoftwareSerial.h>
 
-constexpr int serialBaud = 19200;
+constexpr int serialBaud = 74880;
 constexpr SerialConfig serialConfig = SERIAL_8N1;
 constexpr SerialMode serialMode = SERIAL_FULL;
 
@@ -321,8 +295,6 @@ bool firstLoop = true;
 /* setting feature combinations/options */
 
 /* Start of FastLED/clock stuff */
-#define LEDSTUFF
-#ifdef LEDSTUFF
 #ifdef ESP8266
 #define FASTLED_RAW_PIN_ORDER // this means we'll be using the raw esp8266 pin order -> GPIO_12, which is d6 on ESP8266
 #define LED_PIN 15            // led data in connected to GPIO_12 (d6/ESP8266)
@@ -349,7 +321,6 @@ bool firstLoop = true;
 const CHSV markerHSV(96, 255, 100); // this color will be used to "flag" leds for coloring later on while updating the leds
 CRGBArray<LED_COUNT> leds;
 CRGBPalette16 currentPalette;
-#endif
 
 // start clock specific config/parameters
 
@@ -482,7 +453,7 @@ void showHour(uint8_t h);
 void paletteSwitcher();
 void brightnessSwitcher();
 void printTime();
-void displayTime(time_t t, bool localTime = true);
+void displayTime(struct tm *tm);
 void colorizeOutput(uint8_t mode);
 void pixelFader();
 void setupClock();
@@ -492,32 +463,6 @@ void syncHelper();
 time_t getTimeNTP();
 void saveWifiManagerParameters();
 void armRTCAlarm();
-
-const char *dateTime PROGMEM = "<br/>";
-
-const char *brightnessSelector PROGMEM = "<br/>"
-                                         "<p>Brightness</p>"
-                                         "<input style='display: inline-block;' type='radio' id='choice1' name='brightness' value='0'>"
-                                         "<label for='choice1'>Low</label><br/>"
-                                         "<input style='display: inline-block;' type='radio' id='choice2' name='brightness' value='1'>"
-                                         "<label for='choice2'>Medium</label><br/>"
-                                         "<input style='display: inline-block;' type='radio' id='choice3' name='brightness' value='2'>"
-                                         "<label for='choice3'>high</label><br/>";
-const char *paletteSelector PROGMEM = "<br/>"
-                                      "<label for='palette_select'>Color Palette</label>"
-                                      "<select name='palette_select' id='palette' class='button'>"
-                                      "<option value='0' selected>Red-Blue</option>"
-                                      "<option value='1'>Orange Fire</option>"
-                                      "<option value='2'>Blue Ice</option>"
-                                      "<option value='3'>Rainbow</option>"
-                                      "<option value='4'>Party</option>"
-                                      "<option value='5'>Green</option>"
-                                      "</select>";
-
-WiFiManagerParameter ntpServerParam("ntp_server", "NTP Server", NTPHOST, 40);
-WiFiManagerParameter brightnessParam(brightnessSelector);
-WiFiManagerParameter paletteParam(paletteSelector);
-
 
 void eepromSaveString(const int addr, const String &str) {
     EEPROM.write(addr, str.length());
@@ -533,25 +478,7 @@ String eepromLoadString(const int addr) {
     return String(buffer);
 }
 
-void saveEEPROMSettings() {
-    const String strPalette = paletteParam.getValue();
-    log_d("palette: %s (%d)", strPalette.c_str(), uint8_t(strPalette.toInt()));
-    EEPROM.write(0, uint8_t(strPalette.toInt()));
-
-    const String strBrightness = brightnessParam.getValue();
-    brightness = uint8_t(strBrightness.toInt());
-    log_d("brightness: %s (%d)", strBrightness.c_str(), brightness);
-    EEPROM.write(1, brightness);
-
-    const char *strNewServer = ntpServerParam.getValue();
-    log_d("NTP server: %s", strNewServer);
-    if(strlen(strNewServer) <= 255) {
-        ntpServer = strNewServer;
-        eepromSaveString(2, ntpServer);
-    }
-
-    EEPROM.commit();
-}
+void saveEEPROMSettings() { }
 
 void setup() {
 
@@ -566,10 +493,8 @@ void setup() {
 #ifdef RTCTYPE
     log_i("Configured RTC: " RTCTYPE);
 #endif
-#ifdef LEDSTUFF
     log_i("LED power limit: %d mA", LED_PWR_LIMIT);
     log_i("Total LED count: %d", LED_COUNT);
-#endif
 #ifdef AUTODST
     log_i("autoDST enabled");
 #endif
@@ -599,12 +524,10 @@ void setup() {
     pinMode(pinLDR, INPUT);
 #endif
 
-#ifdef LEDSTUFF
     FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, leds.size()).setCorrection(TypicalSMD5050).setTemperature(DirectSunlight).setDither(1);
     FastLED.setMaxPowerInVoltsAndMilliamps(5, LED_PWR_LIMIT);
     FastLED.clear(true);
     FastLED.show();
-#endif
 
     pinMode(buttonA, INPUT_PULLUP);
     pinMode(buttonB, INPUT_PULLUP);
@@ -654,14 +577,7 @@ void setup() {
     log_d("Starting up WiFi...");
     bool saveConfig = false;
 
-    wm.addParameter(&ntpServerParam);
-    wm.addParameter(&brightnessParam);
-    wm.addParameter(&paletteParam);
-
-    brightnessParam.setValue("brightness", brightness);
-    paletteParam.setValue("palette", EEPROM.read(0));
-
-    wm.setSaveParamsCallback([&saveConfig]() { saveConfig = true; });
+    WordClockParams::begin(&wm);
     wm.autoConnect(WM_PORTAL_NAME);
 
     // we finished with the portal
@@ -696,19 +612,16 @@ void setup() {
     log_w("No RTC defined!");
 #endif
 
-#ifdef LEDSTUFF
     paletteSwitcher();
     brightnessSwitcher();
-#endif
 
 #ifdef FASTFORWARD
     setTime(11, 58, 00, 31, 8, 2022); // h, m, s, d, m, y to set the clock to when using FASTFORWARD
 #endif
 
 #ifdef USENTP
-    log_d("Starting ntp with server: %s", ntpServer.c_str());
-    timeClient.setPoolServerName(ntpServer.c_str());
-    timeClient.begin();
+    log_d("Starting ntp with server: %s", Settings::NTP::getServer().c_str());
+    Settings::NTP::updateNtp();
     syncHelper();
 #endif
 
@@ -724,17 +637,14 @@ void setup() {
 void loop() {
     static uint8_t lastInput = 0;           // != 0 if any button press has been detected
     static uint8_t lastSecondDisplayed = 0; // This keeps track of the last second when the display was updated (HH:MM and HH:MM:SS)
-    static bool doUpdate = false;  // Update led content whenever something sets this to true. Coloring will always happen at fixed intervals!
-    static time_t sysTime = now(); // if no rtc is defined, get local system time
+    static bool doUpdate = false;   // Update led content whenever something sets this to true. Coloring will always happen at fixed intervals!
+    time_t sysTime = time(nullptr); // if no rtc is defined, get local system time
 
-#ifdef LEDSTUFF
     constexpr uint8_t refreshDelay = 5; // refresh leds every 5ms
-#endif
 
     if(lastInput != 0) {           // If any button press is detected...
         if(btnRepeatCounter < 1) { // execute short/single press function(s)
             log_d("%d (short press)", lastInput);
-#ifdef LEDSTUFF
             if(lastInput == 1) // short press button A
                 brightnessSwitcher();
             else if(lastInput == 2) { // short press button B
@@ -746,7 +656,7 @@ void loop() {
                     log_d("Palette changed, previewing");
                     clockStatus = 80;
                     while(millis() - paletteChanged <= colorPreviewDuration * 1000) {
-                        displayTime(sysTime);
+                        displayTime(localtime(&sysTime));
                         colorizeOutput(colorMode);
                         FastLED.show();
                         FastLED.clear();
@@ -757,7 +667,6 @@ void loop() {
                     clockStatus = 0;
                 }
             }
-#endif
             if(lastInput == 3) { // short press button A + button B
             }
         } else if(btnRepeatCounter > 8) { // execute long press function(s)...
@@ -767,7 +676,7 @@ void loop() {
 #ifdef USERTC
                 log_d("Waiting for RTC...");
                 // waiting for RTC
-                while(second(Rtc.GetDateTime().Epoch32Time()) == lastSecondDisplayed)
+                while(Rtc.GetDateTime().Second() == lastSecondDisplayed)
                     yield();
                 Rtc.SetDateTime((Rtc.GetDateTime() - 3600));
                 log_d("Time changed by -1 hour");
@@ -775,7 +684,7 @@ void loop() {
                 log_w("No action without an RTC!");
 #endif
                 FastLED.clear();
-                displayTime(sysTime);
+                displayTime(localtime(&sysTime));
                 colorizeOutput(colorMode);
                 FastLED.show();
 #ifdef FADING
@@ -786,7 +695,7 @@ void loop() {
 #ifdef USERTC
                 log_d("Waiting for RTC...");
                 // waiting for RTC
-                while(second(Rtc.GetDateTime().Epoch32Time()) == lastSecondDisplayed)
+                while(Rtc.GetDateTime().Second() == lastSecondDisplayed)
                     yield();
                 Rtc.SetDateTime((Rtc.GetDateTime() + 3600));
                 log_d("Time changed by +1 hour");
@@ -794,7 +703,7 @@ void loop() {
                 log_w("No action without an RTC!");
 #endif
                 FastLED.clear();
-                displayTime(sysTime);
+                displayTime(localtime(&sysTime));
                 colorizeOutput(colorMode);
                 FastLED.show();
 #ifdef FADING
@@ -804,7 +713,7 @@ void loop() {
             if(lastInput == 3) { // long press button A + button B
 #ifdef USEWIFI                   // if USEWIFI is defined and...
                 bool saveConfig = false;
-                wm.setSaveParamsCallback([&saveConfig]() { saveConfig = true; });
+                // wm.setSaveParamsCallback([&saveConfig]() { saveConfig = true; });
                 wm.startConfigPortal(WM_PORTAL_NAME);
                 if(saveConfig) {
                     log_d("Saving new setting...");
@@ -813,20 +722,18 @@ void loop() {
                     ESP.reset();
                 }
 
-#elif defined(LEDSTUFF) // if USEWIFI is not defined...
+#else // if USEWIFI is not defined...
                 FastLED.clear();
                 FastLED.show();
                 setupClock(); // start time setup
 #endif
             }
             while(digitalRead(buttonA) == LOW || digitalRead(buttonB) == LOW) { // wait until buttons are released again
-#ifdef LEDSTUFF
                 static CEveryNMillis refreshLeds(50);
                 if(refreshLeds) { // Refresh leds every 50ms to give optical feedback
                     colorizeOutput(colorMode);
                     FastLED.show();
                 }
-#endif
                 yield();
             }
         }
@@ -848,23 +755,24 @@ void loop() {
 #ifdef USERTC
         sysTime = Rtc.GetDateTime().Epoch32Time();
 #else
-        sysTime = now();
+        sysTime = time(nullptr);
 #endif
 #ifndef LIGHT_SLEEP
-        if(lastSecondDisplayed != second(sysTime))
+        struct tm tm;
+        gmtime_r(&sysTime, &tm);
+        if(lastSecondDisplayed != tm.tm_sec)
 #endif
             doUpdate = true;
     }
 
-    if(doUpdate) {        // this will update the led array if doUpdate is true because of a new second from the rtc
-        setTime(sysTime); // sync system time to rtc every second
-#ifdef LEDSTUFF
-        FastLED.clear();      // 1A - clear all leds...
-        displayTime(sysTime); // 2A - output sysTime/rtcTime to the led array..
-#endif
-        lastSecondDisplayed = second(sysTime);
+    if(doUpdate) { // this will update the led array if doUpdate is true because of a new second from the rtc
+        timeval v = {sysTime, 0};
+        settimeofday(&v, nullptr);        // sync system time to rtc every second
+        FastLED.clear();                  // 1A - clear all leds...
+        displayTime(localtime(&sysTime)); // 2A - output sysTime/rtcTime to the led array..
+        lastSecondDisplayed = localtime(&sysTime)->tm_sec;
         doUpdate = false;
-        if(second() % 20 == 0) {
+        if(lastSecondDisplayed % 20 == 0) {
             printTime();
         }
 #ifdef USENTP // if NTP is enabled, resync to ntp server
@@ -872,7 +780,6 @@ void loop() {
 #endif
     }
 
-#ifdef LEDSTUFF
     colorizeOutput(colorMode); // 1C, 2C, 3C...colorize the data inside the led array right now...
 #ifdef AUTOBRIGHTNESS
     static CEveryNMillis updateLDR(intervalLDR);
@@ -888,10 +795,12 @@ void loop() {
 #ifdef FADING
     pixelFader();
 #endif
+
+    WordClockParams::loop();
+
     static CEveryNMillis displayRefresh(refreshDelay);
     if(displayRefresh)
         FastLED.show();
-#endif
 
     lastInput = inputButtons();
 
@@ -914,20 +823,19 @@ void loop() {
 }
 
 void armRTCAlarm() {
-    constexpr int interval = 5;
+    // constexpr int interval = 5;
 
-    const auto sysTime = Rtc.GetDateTime().Epoch32Time();
-    auto mins = minute(sysTime) + interval;
-    if(mins != 60)
-        mins -= 60;
+    // const RtcDateTime sysTime = Rtc.GetDateTime().Epoch32Time();
+    // auto mins = ((sysTime.Minute() + interval / 2) / interval) * interval;
+    // if(mins >= 60)
+    //     mins -= 60;
 
-    const DS3231AlarmTwo alarm(0, 0, mins, DS3231AlarmTwoControl::DS3231AlarmTwoControl_MinutesMatch);
+    // arm clock for every minute wakeups
+    const DS3231AlarmTwo alarm(0, 0, 0, DS3231AlarmTwoControl::DS3231AlarmTwoControl_OncePerMinute);
     Rtc.SetAlarmTwo(alarm);
 }
 
 /* */
-
-#ifdef LEDSTUFF
 
 void showWord(uint8_t w) {
     if(w >= sizeof(wordGroups))
@@ -1046,46 +954,48 @@ void setupClock() {
     // do nothing until both buttons are released to avoid accidental inputs right away
     while(digitalRead(buttonA) == LOW || digitalRead(buttonB) == LOW)
         yield();
-    tmElements_t setupTime; // Create a time element which will be used. Using the current time would
-    setupTime.Hour = 12;    // give some problems (like time still running while setting hours/minutes)
-    setupTime.Minute = 0;   // Setup starts at 12 (12 pm) (utc 12 if AUTODST is defined)
-    setupTime.Second = 0;   //
-    setupTime.Day = 18;     // date settings only used when AUTODST is defined, but will set them anyways
-    setupTime.Month = 8;    // see above
-    setupTime.Year = 52;    // current year - 1970 (2022 - 1970 = 52) -- date cannot be set on Lazy Words manually!
-#ifdef USERTC
-    RtcDateTime writeTime;
-#endif
+    struct tm setupTime;    // Create a time element which will be used. Using the current time would
+    setupTime.tm_hour = 12; // give some problems (like time still running while setting hours/minutes)
+    setupTime.tm_min = 0;   // Setup starts at 12 (12 pm) (utc 12 if AUTODST is defined)
+    setupTime.tm_sec = 0;   //
+    setupTime.tm_mday = 18; // date settings only used when AUTODST is defined, but will set them anyways
+    setupTime.tm_mon = 8;   // see above
+    setupTime.tm_year = 52; // current year - 1970 (2022 - 1970 = 52) -- date cannot be set on Lazy Words manually!
     uint8_t lastInput = 0;
     // minutes
     while(lastInput != 2) {
         clockStatus = 93;
         if(lastInput == 1) {
-            if(setupTime.Minute < 55) {
-                setupTime.Minute += 5;
+            if(setupTime.tm_min < 55) {
+                setupTime.tm_min += 5;
             } else {
-                setupTime.Minute = 0;
-                if(setupTime.Hour < 23) {
-                    setupTime.Hour++;
+                setupTime.tm_min = 0;
+                if(setupTime.tm_hour < 23) {
+                    setupTime.tm_hour++;
                 } else {
-                    setupTime.Hour = 0;
+                    setupTime.tm_hour = 0;
                 }
             }
-            log_d("%dh %dm", hourFormat12(makeTime(setupTime)), setupTime.Minute);
+            char buffer[64];
+            strftime(buffer, sizeof(buffer), "%T", &setupTime);
+            log_d("%s", buffer);
         }
-        displayTime(makeTime(setupTime));
+        displayTime(&setupTime);
         colorizeOutput(colorMode);
         FastLED.show();
         lastInput = inputButtons();
     }
     lastInput = 0;
-    log_d("HH:MM:SS -> %02d:%02d:%02d", setupTime.Hour, setupTime.Minute, setupTime.Second);
+    log_d("HH:MM:SS -> %02d:%02d:%02d", setupTime.tm_hour, setupTime.tm_min, setupTime.tm_sec);
 #ifdef USERTC
-    writeTime = {1970 + setupTime.Year, setupTime.Month, setupTime.Day, setupTime.Hour, setupTime.Minute, setupTime.Second};
-    Rtc.SetDateTime(writeTime);
-    log_d("RTC time set %d", makeTime(setupTime));
+    time_t rtcTime = mktime(&setupTime);
+    RtcDateTime rtcDateTime;
+    rtcDateTime.InitWithEpoch32Time(rtcTime);
+    Rtc.SetDateTime(rtcDateTime);
+    log_d("RTC time set %lld", rtcTime);
 #endif
-    setTime(makeTime(setupTime));
+    timeval tv = {rtcTime, 0};
+    settimeofday(&tv, nullptr);
     printTime();
     clockStatus = 0;
     LOG("setupClock done");
@@ -1165,35 +1075,40 @@ void colorizeOutput(uint8_t mode) {
 #endif
 }
 
+int hourFormat12(int hour) { // the hour for the given time in 12 hour format
+    if(hour == 0)
+        return 12; // 12 midnight
+    else if(hour > 12)
+        return hour - 12;
+    else
+        return hour;
+}
 
-void displayTime(time_t t, bool localTime) {
-    if(localTime)
-        t = myTimeZone.toLocal(t);
-
+void displayTime(struct tm *tm) {
     if(clockStatus >= 90) // while in setup this will clear the display each time when redrawing
         FastLED.clear();
 
     for(uint8_t i = 1; i < 6; i++) {
-        const auto dispIndex = pgm_read_byte_near(&displayContents[minute(t) / 5][i]);
+        const auto dispIndex = pgm_read_byte_near(&displayContents[tm->tm_min / 5][i]);
         if(dispIndex == 255) // we reached the end of the loop, skip remaining bytes
             break;
         showWord(dispIndex);
     }
 
 #ifdef LW_ENG
-    if(minute(t) / 5 < 7)
-        showHour(hourFormat12(t));
+    if(tm->tm_min / 5 < 7)
+        showHour(hourFormat12(tm->tm_hour));
     else
-        showHour(hourFormat12(t + 3600));
+        showHour(hourFormat12(tm->tm_hour + 1));
 #elif defined(LW_GER)
-    if(minute(t) / 5 < 5) {
-        if(hourFormat12(t) == 1 && minute(t) / 5 == 0) { // Wenn "Ein Uhr", nutze "Ein" statt "Eins" aus hourGroups
+    if(tm->tm_min / 5 < 5) {
+        if(hourFormat12(tm->tm_hour) == 1 && tm->tm_min / 5 == 0) { // Wenn "Ein Uhr", nutze "Ein" statt "Eins" aus hourGroups
             showHour(0);
         } else {
-            showHour(hourFormat12(t));
+            showHour(hourFormat12(tm->tm_hour));
         }
     } else {
-        showHour(hourFormat12(t + 3600));
+        showHour(hourFormat12(tm->tm_hour + 1));
     }
 #endif
 }
@@ -1201,17 +1116,7 @@ void displayTime(time_t t, bool localTime) {
 void paletteSwitcher() {
     /* As the name suggests this takes care of switching palettes. When adding palettes, make sure paletteCount increases
       accordingly.  A few examples of gradients/solid colors by using RGB values or HTML Color Codes  below               */
-    constexpr uint8_t paletteCount = 6;
-    static uint8_t currentIndex = 0;
-    if(clockStatus == 1) { // Clock is starting up, so load selected palette from eeprom...
-        uint8_t tmp = EEPROM.read(0);
-        if(tmp < paletteCount) {
-            currentIndex = tmp; // 255 from eeprom would mean there's nothing been written yet, so checking range...
-        } else {
-            currentIndex = 0; // ...and default to 0 if returned value from eeprom is not 0 - 6
-        }
-        log_d("loaded EEPROM value %d", tmp);
-    }
+    uint8_t currentIndex = Settings::WordClock::getPalette();
     switch(currentIndex) {
         case 0:
             currentPalette = CRGBPalette16(CRGB(224, 0, 40), CRGB(8, 0, 244), CRGB(100, 0, 180), CRGB(208, 0, 96));
@@ -1233,32 +1138,10 @@ void paletteSwitcher() {
             break;
     }
     log_d("selected palette %d", currentIndex);
-    if(clockStatus == 0) { // only save selected palette to eeprom if clock is in normal running mode, not while in startup/setup/whatever
-        EEPROM.put(0, currentIndex);
-#if defined(ESP8266) || defined(ESP32)
-        EEPROM.commit();
-#endif
-        log_d("saved index %d to eeprom", currentIndex);
-    }
-    if(currentIndex < paletteCount - 1) {
-        currentIndex++;
-    } else {
-        currentIndex = 0;
-    }
-    log_d("PaletteSwitcher done");
 }
 
 void brightnessSwitcher() {
-    static uint8_t currentIndex = 0;
-    if(clockStatus == 1) { // Clock is starting up, so load selected palette from eeprom...
-        uint8_t tmp = EEPROM.read(1);
-        if(tmp < 3) {
-            currentIndex = tmp; // 255 from eeprom would mean there's nothing been written yet, so checking range...
-        } else {
-            currentIndex = 0; // ...and default to 0 if returned value from eeprom is not 0 - 2
-        }
-        log_d("loaded EEPROM value %d", tmp);
-    }
+    uint8_t currentIndex = Settings::WordClock::getBrightness();
     switch(currentIndex) {
         case 0:
             brightness = brightnessLevels[currentIndex];
@@ -1271,35 +1154,6 @@ void brightnessSwitcher() {
             break;
     }
     log_d("selected brightness index %d", currentIndex);
-    if(clockStatus == 0) { // only save selected brightness to eeprom if clock is in normal running mode, not while in startup/setup/whatever
-        EEPROM.put(1, currentIndex);
-#ifdef ESP8266
-        EEPROM.commit();
-#endif
-        log_d("saved index %d to eeprom", currentIndex);
-    }
-    if(currentIndex < 2) {
-        currentIndex++;
-    } else {
-        currentIndex = 0;
-    }
-    log_d("brightnessSwitcher done");
-}
-
-#endif /* LEDSTUFF */
-
-bool leapYear(uint16_t y) {
-    boolean isLeapYear = false;
-    if(y % 4 == 0)
-        isLeapYear = true;
-    if(y % 100 == 0 && y % 400 != 0)
-        isLeapYear = false;
-    if(y % 400 == 0)
-        isLeapYear = true;
-    if(isLeapYear)
-        return true;
-    else
-        return false;
 }
 
 uint8_t inputButtons() {
@@ -1363,7 +1217,12 @@ uint8_t inputButtons() {
 /* This syncs system time to the RTC at startup and will periodically do other sync related
    things, like syncing rtc to ntp time */
 void syncHelper() {
-    static CEveryNSeconds ntpUpdate(60);
+    static CEveryNMinutes ntpUpdate(60);
+    const auto newPeriode = Settings::NTP::getSyncInterval();
+    if(newPeriode != ntpUpdate.getPeriod()) {
+        log_d("Setting NTP periode to %ld", newPeriode);
+        ntpUpdate.setPeriod(newPeriode);
+    }
 
     if(ntpUpdate || clockStatus == 1) {
         if(clockStatus > 1) {
@@ -1390,12 +1249,14 @@ void syncHelper() {
         ntpTime = getTimeNTP();
         log_d("NTP result is %lld", ntpTime);
 #ifdef USERTC
-        RtcDateTime ntpTimeConverted = {year(ntpTime), month(ntpTime), day(ntpTime), hour(ntpTime), minute(ntpTime), second(ntpTime)};
         RtcDateTime rtcTime = Rtc.GetDateTime(); // get current time from the rtc....
+        timeval v = {ntpTime, 0};
+        settimeofday(&v, nullptr);
 
-        const uint32_t delta = std::abs(int(rtcTime.Epoch32Time() - ntpTimeConverted.Epoch32Time()));
-        if(ntpTime > 100 && delta > 100) {
-            Rtc.SetDateTime(ntpTimeConverted);
+        const auto delta = int(difftime(rtcTime.Epoch32Time(), ntpTime));
+        if(ntpTime > 100 && std::abs(delta) > 100) {
+            rtcTime.InitWithEpoch32Time(ntpTime);
+            Rtc.SetDateTime(rtcTime);
             if(!Rtc.GetIsRunning())
                 Rtc.SetIsRunning(true);
         }
@@ -1418,15 +1279,7 @@ time_t getTimeNTP() {
     // ...so we'll wait a moment before causing network traffic
     while(millis() - startTime < 2000)
         yield();
-    timeClient.update();
-    timeNTP = timeClient.getEpochTime();
-    if(timeNTP < 100) {
-        log_e("NTP returned %d - trying again...", timeNTP);
-        timeClient.update();
-        timeNTP = timeClient.getEpochTime();
-        if(timeNTP < 100)
-            log_e("NTP returned %d - giving up", timeNTP);
-    }
+    timeNTP = sntp_get_current_timestamp();
     log_d("getTimeNTP done");
     return timeNTP;
 }
@@ -1436,23 +1289,24 @@ time_t getTimeNTP() {
 // functions below will only be included if DEBUG is defined on top of the sketch
 void printTime() {
     /* outputs current system and RTC time to the serial monitor, adds autoDST if defined */
-    time_t tmp = now();
+    RtcDateTime gmTime;
+    gmTime.InitWithEpoch32Time(time(nullptr));
 #ifdef USERTC
-    RtcDateTime tmp2 = Rtc.GetDateTime().Epoch32Time();
-    setTime(tmp2);
-    tmp = now();
+    RtcDateTime rtcTime = Rtc.GetDateTime();
 #endif
     log_d("-----------------------------------");
-    log_d("System time is: %02d:%02d:%02d", hour(tmp), minute(tmp), second(tmp));
-    log_d("System date is: %02d/%02d/%02d (Y/M/D)", year(tmp), month(tmp), day(tmp));
+    log_d("System time is: %02d:%02d:%02d", gmTime.Hour(), gmTime.Minute(), gmTime.Second());
+    log_d("System date is: %02d/%02d/%02d (Y/M/D)", gmTime.Year(), gmTime.Month(), gmTime.Day());
 #ifdef USERTC
-    log_d("RTC time is: %02d:%02d:%02d", hour(tmp2), minute(tmp2), second(tmp2));
-    log_d("RTC date is: %02d/%02d/%02d (Y/M/D)", year(tmp2), month(tmp2), day(tmp2));
+    log_d("RTC time is: %02d:%02d:%02d", rtcTime.Hour(), rtcTime.Minute(), rtcTime.Second());
+    log_d("RTC date is: %02d/%02d/%02d (Y/M/D)", rtcTime.Year(), rtcTime.Month(), rtcTime.Day());
 #endif
 #ifdef AUTODST
-    tmp = myTimeZone.toLocal(tmp);
-    log_d("autoDST time is: %02d:%02d:%02d", hour(tmp), minute(tmp), second(tmp));
-    log_d("autoDST date is: %02d/%02d/%02d (Y/M/D)", year(tmp), month(tmp), day(tmp));
+    struct tm local;
+    time_t gm = gmTime.Epoch32Time();
+    localtime_r(&gm, &local);
+    log_d("autoDST time is: %02d:%02d:%02d", local.tm_hour, local.tm_min, local.tm_sec);
+    log_d("autoDST date is: %02d/%02d/%02d (Y/M/D)", 1900 + local.tm_year, local.tm_mon, local.tm_mday);
 #endif
     log_d("-----------------------------------");
 }
