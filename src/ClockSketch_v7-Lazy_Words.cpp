@@ -19,6 +19,8 @@
 #include <time.h> // for time() ctime() ...
 #include <sntp.h>
 
+#if 0
+
 // comment below to disable serial in-/output and free some RAM
 #define DEBUG
 
@@ -1340,3 +1342,6 @@ uint8_t dbgInput() {
 #endif
     return 0;
 }
+
+
+#endif

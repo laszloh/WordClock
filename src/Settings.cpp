@@ -1,152 +1,82 @@
-#include <Arduino.h>
 #include "FS.h"
+#include <Arduino.h>
+#include <ArduinoJson.h>
 #include <LittleFS.h>
-#include <sntp.h>
-#include <stdlib.h>
 
 #include "Settings.h"
 #include "esp-hal-log.h"
+#include "genTimezone.h"
 
+Settings settings;
 
-namespace Settings {
+void convertFromJson(JsonVariantConst src, Settings::Time &t) {
+    t.hour = src["hour"];
+    t.minute = src["minute"];
+}
 
-constexpr const char *cfgFile = "/config/wordclock.json";
+void convertToJson(const Settings::Time &t, JsonVariant dst) {
+    dst["hour"] = t.hour;
+    dst["minute"] = t.minute;
+}
 
-void init() {
-    if(!LittleFS.begin()) {
-        log_e("failed to open littlefs");
-        LittleFS.format();
-        LittleFS.begin();
-        LittleFS.mkdir("/config");
-    }
-    File cf = LittleFS.open(cfgFile, "r");
-    StaticJsonDocument<2048> doc;
+bool canConvertFromJson(JsonVariantConst src, const Settings::Time &) { return src["hour"].is<uint8_t>() && src["minte"].is<uint8_t>(); }
 
-    if(cf) {
-        DeserializationError error = deserializeJson(doc, cf);
-        if(error) {
-            log_e("Deserializationerror: %s (%d)", error.c_str(), error.code());
-            log_e("Loading default values...");
+bool Settings::loadSettings() {
+    bool ret = true;
+    StaticJsonDocument<1024> doc;
+
+    File f = LittleFS.open(cfgFile, "r");
+
+    if(f) {
+        DeserializationError err = deserializeJson(doc, f);
+        if(err) {
+            log_e("Deserialze Failed: %s (%d)", err.c_str(), err.code());
+            ret = false;
         }
-    } else
-        log_e("File not found. Loading default values...");
-    JsonVariant obj = doc;
-
-    serializeJsonPretty(doc, Serial);
-
-    WordClock::loadPerfs(obj);
-    NTP::loadPerfs(obj);
-    TZ::loadPerfs(obj);
-    log_d("Settings loaded");
-}
-
-void save() {
-    File cf = LittleFS.open(cfgFile, "w");
-    StaticJsonDocument<2048> doc;
-    JsonVariant set = doc;
-
-    WordClock::savePerfs(set);
-    TZ::savePerfs(set);
-    NTP::savePerfs(set);
-    serializeJson(doc, Serial);
-    serializeJson(doc, cf);
-    cf.close();
-
-    log_d("Settings saved");
-}
-
-} // namespace Settings
-
-namespace Settings::WordClock {
-
-int brightness = 1;
-int palette = 1;
-
-void loadPerfs(JsonVariant &obj) {
-    brightness = obj["brightness"] | 2;
-    palette = obj["palette"] | 1;
-}
-void savePerfs(JsonVariant &obj) {
-    obj["brightness"] = brightness;
-    obj["palette"] = palette;
-}
-
-bool getBrightness() { return brightness; }
-void setBrightness(int newVal) { brightness = newVal; }
-
-bool getPalette() { return palette; }
-void setPalette(int newVal) { palette = newVal; }
-
-} // namespace Settings::WordClock
-
-namespace Settings::TZ {
-
-int timezone = TZ_Etc_UTC;
-
-void loadPerfs(JsonVariant &obj) { setTimezone(obj["timezone"] | TZ_Etc_UTC); }
-
-void savePerfs(JsonVariant &obj) { obj["timezone"] = timezone; }
-
-void setTimezone(int tz) {
-    if(tz >= timezoneSize)
-        return;
-
-    log_d("tz: %d", tz);
-    log_d("zone: %s", timezones[timezone][1]);
-
-    timezone = tz;
-    setTZ(timezones[timezone][1]);
-}
-
-
-int getTimezone() { return timezone; }
-
-} // namespace Settings::TZ
-
-
-namespace Settings::NTP {
-
-bool enabled = true;
-String ntpServer = "europe.pool.ntp.org";
-int syncInterval = 720;
-
-void loadPerfs(JsonVariant &obj) {
-    setEnabled(obj["ntp"] | true);
-    setServer(obj["ntp-server"] | "europe.pool.ntp.org");
-    setSyncInterval(obj["ntp-update"] | 720);
-}
-
-void savePerfs(JsonVariant &obj) {
-    obj["ntp"] = enabled;
-    obj["ntp-server"] = ntpServer;
-    obj["ntp-update"] = syncInterval;
-}
-
-void updateNtp() {
-    if(enabled) {
-        configTime(TZ::timezones[TZ::timezone][1], ntpServer.c_str());
     } else {
-        sntp_stop();
+        log_e("File not found");
+        ret = false;
     }
+
+    brightness = doc["brightness"] | 1;
+    palette = doc["palette"] | 0;
+
+    timezone = doc["timezone"] | TZ_Names::TZ_Europe_Vienna;
+
+    ntpEnabled = doc["ntp-enabled"] | true;
+    ntpServer = doc["ntp-server"] | "europe.pool.ntp.org";
+    syncInterval = doc["ntp-interval"] | 720;
+
+#ifdef NIGHTMODE
+    nmEnable = doc["nm-endable"] | false;
+    nmStartTime = doc["nm-start"] | Time{20, 00};
+    nmEndTime = doc["nm-end"] | Time{10, 00};
+#endif
+
+    if(!ret)
+        log_w("loaded default value");
+    return ret;
 }
 
-bool getEnabled() { return enabled; }
-void setEnabled(const bool en) {
-    enabled = en;
-    updateNtp();
+void Settings::saveSettings() {
+    File f = LittleFS.open(cfgFile, "w");
+    StaticJsonDocument<1024> doc;
+
+    doc["brightness"] = brightness;
+    doc["palette"] = palette;
+
+    doc["timezone"] = timezone;
+
+    doc["ntp-enabled"] = ntpEnabled;
+    doc["ntp-server"] = ntpServer;
+    doc["ntp-interval"] = syncInterval;
+
+#ifdef NIGHTMODE
+    doc["nm-endable"] = nmEnable;
+    doc["nm-start"] = nmStartTime;
+    doc["nm-end"] = nmEndTime;
+#endif
+
+    deserializeJson(doc, f);
+    f.close();
 }
-
-
-String getServer() { return ntpServer; }
-void setServer(const String server) {
-    ntpServer = server;
-    updateNtp();
-}
-
-size_t getSyncInterval() { return syncInterval; }
-void setSyncInterval(size_t interval) {
-    syncInterval = interval;
-    updateNtp();
-}
-
-} // namespace Settings::NTP

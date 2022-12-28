@@ -3,58 +3,41 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#include "c++23.h"
+#include "config.h"
 
-extern int settimeofday(const struct timeval* tv, const struct timezone* tz);
+class Settings {
+public:
+    struct Time {
+        uint8_t hour;
+        uint8_t minute;
+    };
 
-namespace Settings {
+    // Settings
+    uint8_t palette;
+    uint8_t brightness;
 
-void init();
-void save();
+    bool ntpEnabled;
+    String ntpServer;
+    uint32_t syncInterval;
 
-} // namespace Settings
+    int timezone;
 
-namespace Settings::WordClock {
-
-void loadPerfs(JsonVariant &obj);
-void savePerfs(JsonVariant &obj);
-
-bool getBrightness();
-void setBrightness(int newVal);
-
-bool getPalette();
-void setPalette(int newVal);
-
-} // namespace Settings::WordClock
-
-
-namespace Settings::TZ {
-
-#include "genTimezone.h"
-
-void loadPerfs(JsonVariant &obj);
-void savePerfs(JsonVariant &obj);
-
-void setTimezone(int tz);
-int getTimezone();
-
-} // namespace Settings::TZ
+    // night light
+#ifdef NIGHTMODE
+    bool nmEnable;
+    Time nmStartTime;
+    Time nmEndTime;
+#endif
 
 
-namespace Settings::NTP {
+public:
+    Settings() { }
 
-void loadPerfs(JsonVariant &obj);
-void savePerfs(JsonVariant &obj);
+    bool loadSettings();
+    void saveSettings();
 
-void updateNtp();
+private:
+    static constexpr const char *cfgFile = "/config/wordclock.json";
+};
 
-bool getEnabled();
-void setEnabled(const bool en);
-
-String getServer();
-void setServer(const String server);
-
-size_t getSyncInterval();
-void setSyncInterval(size_t interval);
-
-} // namespace Settings::NTP
+extern Settings settings;
