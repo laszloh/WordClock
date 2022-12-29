@@ -19,7 +19,7 @@ public:
     virtual void showTestWords() = 0;
 
 protected:
-    const CHSV markerHSV{CHSV(128, 96, 0)};
+    const CHSV markerHSV{CHSV(128, 96, 1)};
 
     CRGB *leds;
     size_t size;
@@ -46,4 +46,3 @@ using LangImpl = LangGer;
 using LangImpl = LangEng;
 
 #endif
-

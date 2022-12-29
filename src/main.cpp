@@ -1,7 +1,10 @@
 
-#include "c++23.h"
 #include <Arduino.h>
+#include <ESP8266WiFi.h>
 #include <LittleFS.h>
+#include <user_interface.h>
+
+#include "c++23.h"
 
 #include "Button.h"
 #include "config.h"
@@ -11,8 +14,7 @@
 #include "Settings.h"
 #include "WordClock.h"
 
-
-constexpr int serialBaud = 74880;
+constexpr int serialBaud = 115200;
 constexpr SerialConfig serialConfig = SERIAL_8N1;
 constexpr SerialMode serialMode = SERIAL_FULL;
 
@@ -25,25 +27,42 @@ Button buttonA;
 Button buttonB;
 
 void buttonAPressed() {
-    // cycle brightness
+    if(buttonB.pressed()) {
+        // start wifi manager
+    } else {
+        // cycle brightness
+        settings.brightness++;
+        settings.saveSettings();
+        wordClock.setBrightness(settings.brightness);
+    }
+}
+
+void buttonBPressed() {
+    if(buttonA.pressed())
+        return;
+
+    // cycle palette
+    settings.palette++;
+    if(settings.palette >= wordClock.getColorPaletteSize())
+        settings.palette = 0;
+    settings.saveSettings();
+    wordClock.setColorPalette(settings.palette);
 }
 
 void buttonALongPress() {
     if(buttonB.pressed()) {
-        // start wifi manager
+        // start clock setup
     } else {
         // adjust clock by +1 hour
     }
 }
 
-void buttonBPressed() {
-    // cycle pattern
-}
-
 void buttonBLongPress() {
+    if(buttonA.pressed())
+        return;
+
     // adjust hour by -1 hour
-    if(!buttonA.pressed())
-        wordClock.adjustClock(-1);
+    wordClock.adjustClock(-1);
 }
 
 void setup() {
@@ -51,7 +70,7 @@ void setup() {
 
     log_i(SKETCHNAME " starting up...");
     log_i("Clock type: " CLOCKNAME);
-    log_i("Configured RTC: DS3221");
+    log_i("Configured RTC: " RTCNAME);
     log_i("LED power limit: %d mA", LED_PWR_LIMIT);
 #ifdef LW_ENG
     log_i("Language: English");
@@ -104,8 +123,33 @@ void setup() {
 }
 
 void loop() {
+    wordClock.loop();
     buttonA.loop();
     buttonB.loop();
 
-    wordClock.loop();
+    static CEveryNSeconds debugHeap(10);
+    if(debugHeap)
+        log_d("Heap: %d", ESP.getFreeHeap());
+
+    static CEveryNSeconds printTime(5);
+    if(printTime)
+        wordClock.printTime();
+
+    // wordClock.latchAlarmflags();
+    // while(!digitalRead(RTCINT_PIN)){
+    //     log_d("wait for INT-HIGH");
+    //     delay(1);
+    // }
+    // log_d("preparing for sleep");
+    // wifi_station_disconnect(); // not needed
+    // wifi_set_opmode(NULL_MODE);
+    // wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+    // wifi_fpm_open();
+    // gpio_pin_wakeup_enable(GPIO_ID_PIN(RTCINT_PIN), GPIO_PIN_INTR_LOLEVEL);
+    // wifi_fpm_set_wakeup_cb(WordClock::wakeupCallback);
+    // wifi_fpm_do_sleep(0xFFFFFFFF);
+    // delay(100);
+
+    // log_d("woke up");
+    // wordClock.printTime();
 }

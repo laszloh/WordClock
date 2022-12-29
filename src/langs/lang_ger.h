@@ -4,6 +4,7 @@
 #include <FastLED.h>
 
 #include "Language.h"
+#include "esp-hal-log.h"
 
 class LangGer : public Language {
 
@@ -11,6 +12,7 @@ public:
     LangGer() = default;
 
     virtual void showTime(struct tm *tm) override final {
+        FastLED.clear();
         // show the words
         for(auto i = 0; i < 4; i++) {
             const auto dispIndex = pgm_read_byte_near(&displayContents[tm->tm_min / 5][i]);

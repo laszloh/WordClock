@@ -3,18 +3,24 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+#include "c++23.h"
 #include "config.h"
+ 
+struct TimeStruct {
+    uint8_t hour;
+    uint8_t minute;
+};
+bool operator<(const TimeStruct &t, const struct tm &tm);
+bool operator>(const TimeStruct &t, const struct tm &tm);
+
+enum class Brightness : uint8_t { night = 0, low, mid, high, END_OF_LIST };
+Brightness &operator++(Brightness &b, int);
 
 class Settings {
 public:
-    struct Time {
-        uint8_t hour;
-        uint8_t minute;
-    };
-
     // Settings
     uint8_t palette;
-    uint8_t brightness;
+    Brightness brightness;
 
     bool ntpEnabled;
     String ntpServer;
@@ -25,8 +31,8 @@ public:
     // night light
 #ifdef NIGHTMODE
     bool nmEnable;
-    Time nmStartTime;
-    Time nmEndTime;
+    TimeStruct nmStartTime;
+    TimeStruct nmEndTime;
 #endif
 
 

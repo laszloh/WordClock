@@ -19,7 +19,7 @@ void Button::loop() {
     }
 }
 
-void Button::interruptHandler(void *button) { static_cast<Button *>(button)->_interruptTrigger = true; }
+void ICACHE_RAM_ATTR Button::interruptHandler(void *button) { static_cast<Button *>(button)->_interruptTrigger = true; }
 
 bool Button::read() { return _debouncedState; }
 

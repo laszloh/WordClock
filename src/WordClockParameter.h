@@ -6,6 +6,8 @@
 #include "Settings.h"
 #include "esp-hal-log.h"
 
+namespace wc {
+
 namespace WordClockParams {
 
 WiFiManager *_wm;
@@ -21,13 +23,13 @@ void begin(WiFiManager *wm) {
     std::vector<const char *> menu = {"wifi", "custom", "info", "param", "sep", "restart", "exit"};
     wm->setMenu(menu);
     wm->setCustomMenuHTML(menuhtml);
-    Settings::init();
+    // Settings::init();
 }
 
 void loop() {
     if(saveRequested) {
         saveRequested = false;
-        Settings::save();
+        // Settings::save();
     }
 }
 
@@ -46,14 +48,14 @@ const char *getSystimeStr() {
 }
 
 void setSystemTime(const String localTime) {
-    struct tm tm = {0};
-    strptime(localTime.c_str(), "%FT%T", &tm);
-    time_t now = mktime(&tm) - _timezone;
-    log_d("UTC time: %lld", now);
-    timeval tvNow;
-    tvNow.tv_sec = now;
-    tvNow.tv_usec = 0;
-    settimeofday(&tvNow, NULL);
+    // struct tm tm = {0};
+    // strptime(localTime.c_str(), "%FT%T", &tm);
+    // time_t now = mktime(&tm) - _timezone;
+    // log_d("UTC time: %lld", now);
+    // timeval tvNow;
+    // tvNow.tv_sec = now;
+    // tvNow.tv_usec = 0;
+    // settimeofday(&tvNow, NULL);
 }
 
 void handleRoute() {
@@ -76,24 +78,24 @@ void handleRoute() {
     TimeConfHTML += HTTP_HEAD_END;
     TimeConfHTML += F("<iframe name='dummyframe' id='dummyframe' style='display: none;'></iframe>"
                       "<form action='/save-wc' target='dummyframe' method='POST' novalidate>");
-    const int brightness = Settings::WordClock::getBrightness();
+    // const int brightness = Settings::WordClock::getBrightness();
     TimeConfHTML += F("<h1>WordClock Settings</h1>"
                       "<p>Brightness</p>"
                       "<input style='display: inline-block;' type='radio' id='choice1' name='brightness' value='0' ");
-    TimeConfHTML += (brightness == 0) ? "checked" : "";
+    // TimeConfHTML += (brightness == 0) ? "checked" : "";
     TimeConfHTML += F("><label for='choice1'>Low</label><br/>"
                       "<input style='display: inline-block;' type='radio' id='choice2' name='brightness' value='1' ");
-    TimeConfHTML += (brightness == 1) ? "checked" : "";
+    // TimeConfHTML += (brightness == 1) ? "checked" : "";
     TimeConfHTML += F("><label for='choice2'>Medium</label><br/>"
                       "<input style='display: inline-block;' type='radio' id='choice3' name='brightness' value='2' ");
-    TimeConfHTML += (brightness == 2) ? "checked" : "";
+    // TimeConfHTML += (brightness == 2) ? "checked" : "";
     TimeConfHTML += F("><label for='choice3'>high</label><br/>"
                       "<br/>"
                       "<label for='palette'>Color Palette</label>"
                       "<select name='palette' id='palette' class='button'>"
                       "<option value='0' ");
-    const int palette = Settings::WordClock::getPalette();
-    TimeConfHTML += (palette == 0) ? "selected" : "";
+    // const int palette = Settings::WordClock::getPalette();
+    // TimeConfHTML += (palette == 0) ? "selected" : "";
     TimeConfHTML += F(">Red-Blue</option>"
                       "<option value='1' ");
     TimeConfHTML += (palette == 1) ? "selected" : "";
@@ -114,15 +116,15 @@ void handleRoute() {
                       "<h1>Time Settings</h1>"
                       "<label for='timezone'>Time Zone</label>"
                       "<select id='timezone' name='timezone'>");
-    for(size_t i = 0; i < Settings::TZ::timezoneSize; i++) {
-        bool selected = (Settings::TZ::getTimezone() == i);
-        TimeConfHTML += "<option value='" + String(i) + "' " + String(selected ? "selected" : "") + ">" + String(FPSTR(Settings::TZ::timezones[i][0]))
-            + "</option>";
-    }
+    // for(size_t i = 0; i < Settings::TZ::timezoneSize; i++) {
+    //     bool selected = (Settings::TZ::getTimezone() == i);
+    //     TimeConfHTML += "<option value='" + String(i) + "' " + String(selected ? "selected" : "") + ">" + String(FPSTR(Settings::TZ::timezones[i][0]))
+    //         + "</option>";
+    // }
     TimeConfHTML += F("</select><br><br>"
                       "<label for='use-ntp-server'>Enable NTP Client</label> "
                       " <input value='1' type=checkbox name='use-ntp-server' id='use-ntp-server'");
-    TimeConfHTML += String(Settings::NTP::getEnabled() ? "checked" : "");
+    // TimeConfHTML += String(Settings::NTP::getEnabled() ? "checked" : "");
     TimeConfHTML += F("><br/>"
                       "<div class='collapsed'>"
                       "<label for='set-time'>Set Time "
@@ -131,7 +133,7 @@ void handleRoute() {
                       "<h2>NTP Client Setup</h2>"
                       "<br><label for='ntp-server'>Server:</label>"
                       "<input type='text' id='ntp-server' name='ntp-server' value='");
-    TimeConfHTML += Settings::NTP::getServer();
+    // TimeConfHTML += Settings::NTP::getServer();
     TimeConfHTML += F("'><br>"
                       "<label for='ntp-interval'>Sync interval:</label>"
                       "<select id='ntp-interval' name='ntp-interval'>"
@@ -162,31 +164,31 @@ void handleValues() {
         const String strBrightness = srv->arg("brightness");
         log_v("brightness: %s", strBrightness.c_str());
         int brightness = std::max(int(strBrightness.toInt()), 2);
-        Settings::WordClock::setBrightness(brightness);
+        // Settings::WordClock::setBrightness(brightness);
     }
 
     if(srv->hasArg("palette")) {
         const String strPalette = srv->arg("palette");
         log_v("palette: %s", strPalette.c_str());
         int palette = std::max(int(strPalette.toInt()), 5);
-        Settings::WordClock::setPalette(palette);
+        // Settings::WordClock::setPalette(palette);
     }
 
     // Timezones
     if(srv->hasArg("timezone")) {
-        const String strTz = srv->arg("timezone");
-        log_v("Timezone: %s", strTz.c_str());
-        size_t tzId = strTz.toInt();
-        if(tzId >= Settings::TZ::timezoneSize)
-            tzId = Settings::TZ::TZ_Names::TZ_Etc_UTC;
-        Settings::TZ::setTimezone(tzId);
+        // const String strTz = srv->arg("timezone");
+        // log_v("Timezone: %s", strTz.c_str());
+        // size_t tzId = strTz.toInt();
+        // if(tzId >= Settings::TZ::timezoneSize)
+        //     tzId = Settings::TZ::TZ_Names::TZ_Etc_UTC;
+        // Settings::TZ::setTimezone(tzId);
     }
 
     // NTP
     const String useNtpServer = srv->arg("use-ntp-server");
     log_v("UseNtpServer: %s", useNtpServer.c_str());
     const bool NTPEnabled = useNtpServer.toInt() == 1;
-    Settings::NTP::setEnabled(NTPEnabled);
+    // Settings::NTP::setEnabled(NTPEnabled);
 
     if(NTPEnabled) {
         // get the rest of the args
@@ -217,7 +219,7 @@ void handleValues() {
                 interval = 4 * 60;
         }
         log_d("");
-        Settings::NTP::setSyncInterval(interval);
+        // Settings::NTP::setSyncInterval(interval);
         log_d("");
     } else {
         // get the time the user set
@@ -238,3 +240,5 @@ void bindServerRequests() {
 }
 
 } // namespace WordClockParams
+
+} // namespace wc

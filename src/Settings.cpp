@@ -1,6 +1,6 @@
-#include "FS.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <FS.h>
 #include <LittleFS.h>
 
 #include "Settings.h"
@@ -9,17 +9,33 @@
 
 Settings settings;
 
-void convertFromJson(JsonVariantConst src, Settings::Time &t) {
+void convertFromJson(JsonVariantConst src, TimeStruct &t) {
     t.hour = src["hour"];
     t.minute = src["minute"];
 }
-
-void convertToJson(const Settings::Time &t, JsonVariant dst) {
+void convertToJson(const TimeStruct &t, JsonVariant dst) {
     dst["hour"] = t.hour;
     dst["minute"] = t.minute;
 }
+bool canConvertFromJson(JsonVariantConst src, const TimeStruct &) { return src["hour"].is<uint8_t>() && src["minte"].is<uint8_t>(); }
 
-bool canConvertFromJson(JsonVariantConst src, const Settings::Time &) { return src["hour"].is<uint8_t>() && src["minte"].is<uint8_t>(); }
+void convertFromJson(JsonVariantConst src, Brightness &b) { b = static_cast<Brightness>(src.as<uint8_t>()); }
+void convertToJson(const Brightness &b, JsonVariant dst) { dst.set(std::to_underlying(b)); }
+bool canConvertFromJson(JsonVariantConst src, const Brightness &) {
+    return src.is<uint8_t>() && src.as<uint8_t>() < std::to_underlying(Brightness::high);
+}
+
+bool operator<(const TimeStruct &t, const struct tm &tm) { return t.hour < tm.tm_hour && t.minute < tm.tm_min; }
+
+bool operator>(const TimeStruct &t, const struct tm &tm) { return t.hour > tm.tm_hour && t.minute > tm.tm_min; }
+
+// Special behavior for Brightness++
+Brightness &operator++(Brightness &b, int) {
+    b = static_cast<Brightness>(std::to_underlying(b) + 1);
+    if(b == Brightness::END_OF_LIST)
+        b = Brightness::night;
+    return b;
+}
 
 bool Settings::loadSettings() {
     bool ret = true;
@@ -38,7 +54,7 @@ bool Settings::loadSettings() {
         ret = false;
     }
 
-    brightness = doc["brightness"] | 1;
+    brightness = doc["brightness"] | Brightness::mid;
     palette = doc["palette"] | 0;
 
     timezone = doc["timezone"] | TZ_Names::TZ_Europe_Vienna;
@@ -49,8 +65,8 @@ bool Settings::loadSettings() {
 
 #ifdef NIGHTMODE
     nmEnable = doc["nm-endable"] | false;
-    nmStartTime = doc["nm-start"] | Time{20, 00};
-    nmEndTime = doc["nm-end"] | Time{10, 00};
+    nmStartTime = doc["nm-start"] | TimeStruct{20, 00};
+    nmEndTime = doc["nm-end"] | TimeStruct{10, 00};
 #endif
 
     if(!ret)
