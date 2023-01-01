@@ -24,6 +24,11 @@ template <class T, std::size_t N> constexpr std::array<std::remove_cv_t<T>, N> t
     return detail::to_array_impl(std::move(a), std::make_index_sequence<N>{});
 }
 
+template <typename... T>
+constexpr auto make_array(T&&... values) -> std::array<typename std::decay<typename std::common_type<T...>::type>::type, sizeof...(T)> {
+    return std::array<typename std::decay<typename std::common_type<T...>::type>::type, sizeof...(T)>{std::forward<T>(values)...};
+}
+
 #endif
 
 } // namespace std

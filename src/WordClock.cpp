@@ -15,16 +15,6 @@ extern "C" int settimeofday(const struct timeval* tv, const struct timezone* tz)
 
 WordClock wordClock;
 
-const std::array<CRGBPalette16, 7> WordClock::colorPalettes = {{
-    CRGBPalette16(CRGB(224, 0, 40), CRGB(8, 0, 244), CRGB(100, 0, 180), CRGB(208, 0, 96)),
-    CRGBPalette16(CRGB(224, 16, 0), CRGB(192, 64, 0), CRGB(192, 140, 0), CRGB(240, 40, 0)),
-    CRGBPalette16(CRGB::Aquamarine, CRGB::Turquoise, CRGB::Blue, CRGB::DeepSkyBlue),
-    RainbowColors_p,
-    PartyColors_p,
-    OceanColors_p,
-    CRGBPalette16(CRGB::LawnGreen),
-}};
-
 /**
  * This routine turns off the I2C bus and clears it
  * on return SCA and SCL pins are tri-state inputs.
@@ -93,12 +83,6 @@ static int I2C_ClearBus() {
     return 0; // all ok
 }
 
-void WordClock::wakeupCallback() {
-    log_d("Woke up");
-    wordClock.latchAlarmflags();
-    wordClock.wakeup = true;
-}
-
 void WordClock::begin() {
     FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, leds.size()).setCorrection(TypicalSMD5050).setTemperature(DirectSunlight).setDither(1);
     FastLED.setMaxPowerInVoltsAndMilliamps(5, LED_PWR_LIMIT);
@@ -107,8 +91,8 @@ void WordClock::begin() {
 
     lang.assign(leds, leds.size());
 
-    setBrightness(settings.brightness);
-    setColorPalette(settings.palette);
+    setBrightness();
+    setPalette();
 
     settimeofday_cb(WordClock::timeUpdate);
 
@@ -164,19 +148,27 @@ void WordClock::loop() {
 
     bool nightMode = settings.nmEnable && ((start < tm || end > tm) || forceNightMode);
 
+    static CEveryNSeconds debug(1);
+    if(debug)
+        log_v("Night Mode: %d %d %d %d", settings.nmEnable, (start < tm), (end > tm), forceNightMode);
+
     // adjust internal time to RTC daily (or if time delta get higher than 1 Minute)
     const uint16_t delta = std::abs(now - rtc.GetDateTime().Epoch32Time());
     static CEveryNHours syncTime(24);
-    if(syncTime || delta > 60 || wakeup) {
-        wakeup = false;
+    if(syncTime || delta > 60) {
         log_d("syncing to RTC; delta=%d", delta);
         adjustInternalTime(rtc.GetDateTime().Epoch32Time());
     }
 
     // update the LEDs
     lang.showTime(&tm);
+    setBrightness();
+    setPalette();
 
-    if(tm.tm_min != lastMinute || firstRun) {
+    if(preview)
+        previewMode = false;
+
+    if(tm.tm_min != lastMinute || firstRun || previewMode) {
         // color the leds
         firstRun = false;
         colorOutput(nightMode);
@@ -204,32 +196,39 @@ void WordClock::colorOutput(bool nightMode) {
     }
     FastLED.show();
     FastLED.show();
-    delay(10);
 }
 
-void WordClock::setBrightness(Brightness brightness) {
+void WordClock::setPalette(bool showPreview) {
+    currentPalette = *data::colorPalettes[settings.palette];
+
+    if(showPreview) {
+        preview.reset();
+        previewMode = true;
+    }
+}
+
+
+void WordClock::setBrightness(bool showPreview) {
     constexpr std::array brightnessValues = {80, 130, 240};
 
-    if(brightness > Brightness::night) {
-        const auto newBrightness = std::to_underlying(brightness) - 1;
+#ifdef NIGHTMODE
+    if(settings.brightness == Brightness::night)
+        forceNightMode = settings.nmEnable;
+    else
+#endif
+    {
+        const auto newBrightness = BrightnessToIndex(settings.brightness);
         FastLED.setBrightness(brightnessValues[newBrightness]);
         forceNightMode = false;
-    } else {
-        forceNightMode = settings.nmEnable;
-        colorOutput(forceNightMode);
     }
-    FastLED.show();
-    delay(2000);
+
+    if(showPreview) {
+        preview.reset();
+        previewMode = true;
+    }
 }
 
-void WordClock::setColorPalette(uint8_t palette) {
-    if(palette >= colorPalettes.size())
-        palette = 2;
-
-    currentPalette = colorPalettes[palette];
-}
-
-void WordClock::printTime() {
+void WordClock::printDebugTime() {
     log_d("----------------------------");
     const time_t now = time(nullptr);
     const RtcDateTime rtcNow = rtc.GetDateTime();
@@ -247,6 +246,21 @@ void WordClock::printTime() {
 
     log_d("RTC:   %04d-%02d-%02d %02d:%02d:%02d", rtcNow.Year(), rtcNow.Month(), rtcNow.Day(), rtcNow.Hour(), rtcNow.Minute(), rtcNow.Second());
     log_d("----------------------------");
+}
+
+void WordClock::showSetup(WiFiManager*) {
+    log_v("AP started");
+    FastLED.clear();
+    lang.showSetup();
+    currentPalette = data::Green_p;
+    colorOutput(false);
+}
+
+void WordClock::showReset() {
+    log_v("Resetting settings");
+    FastLED.clear();
+    lang.showReset();
+    currentPalette = data::Red_p;
 }
 
 void WordClock::adjustInternalTime(time_t newTime) const {

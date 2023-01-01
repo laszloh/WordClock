@@ -1,6 +1,7 @@
 #pragma once
 
 #include <FastLED.h>
+#include <WiFiManager.h>
 
 #include "Language.h"
 #include "Rtc.h"
@@ -16,28 +17,27 @@ public:
     void loop();
 
     void adjustClock(int8_t hours);
-    void setBrightness(Brightness brightness);
-    void setColorPalette(uint8_t palette);
+    void adjustInternalTime(time_t newTime) const;
 
-    size_t getColorPaletteSize() const { return colorPalettes.size(); }
+    void setBrightness(bool preview = false);
+    void setPalette(bool preview = false);
 
-    void printTime();
+    void printDebugTime();
 
-    void latchAlarmflags() { rtc.LatchAlarmsTriggeredFlags(); }
-    static void wakeupCallback();
+    void showSetup(WiFiManager *wm);
+    void showReset();
+    static void timeUpdate(bool sntp);
 
 private:
-    static void timeUpdate(bool sntp);
-    static const std::array<CRGBPalette16, 7> colorPalettes;
-
-    void adjustInternalTime(time_t newTime) const;
     void colorOutput(bool nightMode);
 
     LangImpl lang;
     CRGBArray<LangImpl::getLedCount()> leds;
     Rtc rtc{rtcInstance()};
     uint8_t lastMinute;
-    bool wakeup{false};
+
+    bool previewMode{false};
+    CEveryNSeconds preview{CEveryNBSeconds(2)};
 
     // coloring stuff
     bool forceNightMode{false};

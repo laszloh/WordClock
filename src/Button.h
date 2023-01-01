@@ -10,9 +10,15 @@ public:
 
     void loop();
 
-    bool read();
-    bool pressed();
-    bool released();
+    bool read() { return _debouncedState; }
+    bool pressed() { return _debouncedState; }
+    bool released() { return !_debouncedState; }
+
+    bool longPress() { return _longPressState; }
+
+    bool readRaw() { return digitalRead(_pin) == _buttonPressed; }
+    bool pressedRaw() { return digitalRead(_pin) == _buttonPressed; }
+    bool releasedRaw() { return digitalRead(_pin) != _buttonPressed; }
 
     void setDebounceMs(uint16_t ms) { _debounceTime = ms; }
     void setClickMs(uint16_t ms) { _clickTime = ms; }
@@ -34,7 +40,7 @@ public:
 
 private:
     static constexpr uint8_t maxNrClicks = 100;
-    
+
     static void interruptHandler(void *button);
 
     enum class StateMachine : uint8_t { init = 0, down, up, count, press, pressEnd };
@@ -55,6 +61,7 @@ private:
     int _pin;
     bool _buttonPressed{false};
     bool _debouncedState;
+    bool _longPressState;
     bool _interruptTrigger{false};
 
     uint16_t _debounceTime{50};

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "c++23.h"
 #include <Arduino.h>
 #include <FastLED.h>
-#include "c++23.h"
 
 #include "config.h"
 
@@ -17,6 +17,8 @@ public:
 
     virtual void showTime(struct tm *tm) = 0;
     virtual void showTestWords() = 0;
+    virtual void showSetup() = 0;
+    virtual void showReset() = 0;
 
 protected:
     const CHSV markerHSV{CHSV(128, 96, 1)};
@@ -32,7 +34,6 @@ protected:
         else
             return hour;
     }
-
 };
 
 #ifdef LW_GER

@@ -41,6 +41,21 @@ public:
         showHour(2);
     }
 
+    virtual void showSetup() override final {
+        showWord(0);
+        showWord(1);
+        showWord(6);
+    }
+
+    virtual void showReset() override final {
+        showWord(0);
+        showWord(1);
+        showWord(6);
+        showWord(9);
+        showHour(10);
+        showHour(2);
+    }
+
     static constexpr size_t getLedCount() { return 98; }
 
 private:

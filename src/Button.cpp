@@ -21,12 +21,6 @@ void Button::loop() {
 
 void ICACHE_RAM_ATTR Button::interruptHandler(void *button) { static_cast<Button *>(button)->_interruptTrigger = true; }
 
-bool Button::read() { return _debouncedState; }
-
-bool Button::pressed() { return _debouncedState; }
-
-bool Button::released() { return !_debouncedState; }
-
 void Button::tick(bool activeLevel) {
     const auto now = millis();
     const auto waitTime = now - _startTime;
@@ -61,6 +55,7 @@ void Button::tick(bool activeLevel) {
                 if(waitTime > _pressTime) {
                     if(_longPressStartCb)
                         _longPressStartCb();
+                    _longPressState = activeLevel;
                     _debouncedState = activeLevel;
                     fsmUpdate(StateMachine::press);
                 }
@@ -117,6 +112,7 @@ void Button::tick(bool activeLevel) {
             } else if(waitTime >= _debounceTime) {
                 if(_longPressStopCb)
                     _longPressStopCb();
+                _longPressState = !activeLevel;
                 reset();
             }
 

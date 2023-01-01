@@ -1,8 +1,9 @@
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
+#include <FastLED.h>
 #include <LittleFS.h>
-#include <user_interface.h>
+#include <WiFiManager.h>
 
 #include "c++23.h"
 
@@ -13,27 +14,25 @@
 
 #include "Settings.h"
 #include "WordClock.h"
+#include "WordClockPage.h"
 
 constexpr int serialBaud = 115200;
 constexpr SerialConfig serialConfig = SERIAL_8N1;
 constexpr SerialMode serialMode = SERIAL_FULL;
 
-inline void setupSerial() {
-    Serial.begin(serialBaud, serialConfig, serialMode);
-    delay(2000); // to give the user time to start the serial console
-}
+inline void setupSerial() { Serial.begin(serialBaud, serialConfig, serialMode); }
 
 Button buttonA;
 Button buttonB;
+
+WiFiManager wm;
 
 void buttonAPressed() {
     if(buttonB.pressed()) {
         // start wifi manager
     } else {
         // cycle brightness
-        settings.brightness++;
-        settings.saveSettings();
-        wordClock.setBrightness(settings.brightness);
+        settings.cycleBrightness();
     }
 }
 
@@ -42,15 +41,11 @@ void buttonBPressed() {
         return;
 
     // cycle palette
-    settings.palette++;
-    if(settings.palette >= wordClock.getColorPaletteSize())
-        settings.palette = 0;
-    settings.saveSettings();
-    wordClock.setColorPalette(settings.palette);
+    settings.cyclePalette();
 }
 
 void buttonALongPress() {
-    if(buttonB.pressed()) {
+    if(buttonB.longPress()) {
         // start clock setup
     } else {
         // adjust clock by +1 hour
@@ -58,7 +53,7 @@ void buttonALongPress() {
 }
 
 void buttonBLongPress() {
-    if(buttonA.pressed())
+    if(buttonA.longPress())
         return;
 
     // adjust hour by -1 hour
@@ -96,9 +91,17 @@ void setup() {
     log_i("Time based night mode enabled");
 #endif
 
-    LittleFSConfig cfg;
-    LittleFS.setConfig(cfg);
-    LittleFS.begin();
+    if(!LittleFS.begin()) {
+        log_w("File system failed to mount. Formatting...");
+        bool ret = LittleFS.format();
+        ret &= LittleFS.begin();
+        if(!ret) {
+            log_e("failed to format & mount file system!");
+            while(1) {
+                yield();
+            }
+        }
+    }
     log_i("Filesystem mounted");
 
     if(settings.loadSettings())
@@ -120,10 +123,24 @@ void setup() {
     buttonB.begin(BUTB_PIN);
     buttonB.attachClickCallback(buttonBPressed);
     buttonB.attachLogPressStop(buttonBLongPress);
+
+    // check if we should reset our settings
+    if(buttonA.pressedRaw() && buttonB.pressedRaw()) {
+        wordClock.showReset();
+        delay(5000);
+        wm.resetSettings();
+        ESP.restart();
+    }
+
+    // boot up the wifi and the wifi manager
+    wordClockPage.begin(&wm);
+    wm.setAPCallback(std::bind(&WordClock::showSetup, wordClock, std::placeholders::_1));
+    wm.autoConnect("WordClock Setup");
 }
 
 void loop() {
     wordClock.loop();
+    settings.loop();
     buttonA.loop();
     buttonB.loop();
 
@@ -131,9 +148,21 @@ void loop() {
     if(debugHeap)
         log_d("Heap: %d", ESP.getFreeHeap());
 
-    static CEveryNSeconds printTime(5);
+    static CEveryNSeconds printTime(10);
     if(printTime)
-        wordClock.printTime();
+        wordClock.printDebugTime();
+
+    // static CEveryNSeconds simulate(5);
+    // if(simulate) {
+    //     static bool firstButton = false;
+
+    //     log_d("Simulation button %c press", (firstButton) ? 'A' : 'B');
+    //     if(firstButton)
+    //         buttonAPressed();
+    //     else
+    //         buttonBPressed();
+    //     // firstButton = !firstButton;
+    // }
 
     // wordClock.latchAlarmflags();
     // while(!digitalRead(RTCINT_PIN)){
