@@ -89,6 +89,8 @@ public:
     ColorPalette palette;
     Brightness brightness;
 
+    bool wifiEnable;
+
     bool ntpEnabled;
     String ntpServer;
     uint32_t syncInterval;
@@ -114,6 +116,8 @@ public:
     void cycleBrightness();
     void cyclePalette();
     void requestAsyncSave() { saveRequest = true; }
+
+    static void resetSettings();
 
 private:
     static constexpr const char *cfgFile = "/config/wordclock.json";

@@ -10,6 +10,8 @@
 
 class WordClock {
 public:
+    enum class Mode : uint8_t { init = 0, running, setup, wifi_setup };
+
     WordClock() = default;
 
     void begin();
@@ -18,15 +20,21 @@ public:
 
     void adjustClock(int8_t hours);
     void adjustInternalTime(time_t newTime) const;
+    void getTimeFromRtc() { adjustInternalTime(rtc.GetDateTime().Epoch32Time()); }
 
     void setBrightness(bool preview = false);
     void setPalette(bool preview = false);
 
     void printDebugTime();
+    void latchAlarmflags() { rtc.LatchAlarmsTriggeredFlags(); }
 
-    void showSetup(WiFiManager *wm);
+    static void setSetup(WiFiManager *);
+    static void setRunning();
     void showReset();
     static void timeUpdate(bool sntp);
+
+    const Mode &getMode() const { return mode; }
+    void prepareAlarm();
 
 private:
     void colorOutput(bool nightMode);
@@ -34,6 +42,8 @@ private:
     LangImpl lang;
     CRGBArray<LangImpl::getLedCount()> leds;
     Rtc rtc{rtcInstance()};
+    Mode mode{Mode::init};
+
     uint8_t lastMinute;
 
     bool previewMode{false};

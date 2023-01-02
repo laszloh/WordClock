@@ -85,7 +85,7 @@ static int I2C_ClearBus() {
 
 void WordClock::begin() {
     FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, leds.size()).setCorrection(TypicalSMD5050).setTemperature(DirectSunlight).setDither(1);
-    FastLED.setMaxPowerInVoltsAndMilliamps(5, LED_PWR_LIMIT);
+    // FastLED.setMaxPowerInVoltsAndMilliamps(5, LED_PWR_LIMIT);
     FastLED.clear(true);
     FastLED.show();
 
@@ -116,13 +116,13 @@ void WordClock::begin() {
     }
 
     // // perpare the alarm and the wakeup
-    // log_d("Arming wakeup alarm");
-    // pinMode(RTCINT_PIN, INPUT);
-    // rtc.Enable32kHzPin(false);
-    // rtc.SetSquareWavePin(DS3231SquareWavePin_ModeAlarmTwo);
-    // DS3231AlarmTwo alarm(0, 0, 0, DS3231AlarmTwoControl::DS3231AlarmTwoControl_OncePerMinute);
-    // rtc.SetAlarmTwo(alarm);
-    // rtc.LatchAlarmsTriggeredFlags();
+    log_d("Arming wakeup alarm");
+    pinMode(RTCINT_PIN, INPUT);
+    rtc.Enable32kHzPin(false);
+    rtc.SetSquareWavePin(DS3231SquareWavePin_ModeAlarmTwo);
+    prepareAlarm();
+
+    mode = Mode::init;
 
     // set the time zone (we do not care that we set it twice, if ntp is armed)
     setTZ(timezones[settings.timezone][1]);
@@ -137,20 +137,52 @@ void WordClock::begin() {
 }
 
 void WordClock::loop() {
-    static bool firstRun = true;
-
-    time_t now = time(nullptr);
-    struct tm tm;
+    bool updateOutput = false;
     const auto start = settings.nmStartTime;
     const auto end = settings.nmEndTime;
+    const time_t now = time(nullptr);
+    struct tm tm;
 
     localtime_r(&now, &tm);
 
-    bool nightMode = settings.nmEnable && ((start < tm || end > tm) || forceNightMode);
+    // update the LEDs
+    lang.showTime(&tm);
+    setBrightness();
+    setPalette();
 
-    static CEveryNSeconds debug(1);
-    if(debug)
-        log_v("Night Mode: %d %d %d %d", settings.nmEnable, (start < tm), (end > tm), forceNightMode);
+    bool nightMode = settings.nmEnable && (start < tm || end > tm || forceNightMode);
+
+    switch(mode) {
+        case Mode::init:
+            updateOutput = true;
+
+            mode = Mode::running;
+            break;
+
+        case Mode::running:
+            if(tm.tm_min != lastMinute) {
+                updateOutput = true;
+                lastMinute = tm.tm_min;
+            }
+            break;
+
+        case Mode::setup:
+        case Mode::wifi_setup: {
+
+            // override palette
+            currentPalette = data::Red_p;
+            nightMode = false;
+
+            static CEveryNMillis blink(500);
+            if(blink) {
+                static bool blank = false;
+                if(blank)
+                    FastLED.clear();
+                blank = !blank;
+                updateOutput = true;
+            }
+        } break;
+    }
 
     // adjust internal time to RTC daily (or if time delta get higher than 1 Minute)
     const uint16_t delta = std::abs(now - rtc.GetDateTime().Epoch32Time());
@@ -160,26 +192,19 @@ void WordClock::loop() {
         adjustInternalTime(rtc.GetDateTime().Epoch32Time());
     }
 
-    // update the LEDs
-    lang.showTime(&tm);
-    setBrightness();
-    setPalette();
-
     if(preview)
         previewMode = false;
 
-    if(tm.tm_min != lastMinute || firstRun || previewMode) {
-        // color the leds
-        firstRun = false;
+    // color the leds
+    if(updateOutput || previewMode)
         colorOutput(nightMode);
-        lastMinute = tm.tm_min;
-    }
 }
 
 void WordClock::colorOutput(bool nightMode) {
     log_d("Coloring output (nightmode %d)", nightMode);
     if(nightMode) {
         FastLED.setDither(0);
+        FastLED.setBrightness(255);
         // colorize all leds in a dark red
         for(CRGB& px : leds) {
             if(px)
@@ -209,7 +234,7 @@ void WordClock::setPalette(bool showPreview) {
 
 
 void WordClock::setBrightness(bool showPreview) {
-    constexpr std::array brightnessValues = {80, 130, 240};
+    constexpr std::array brightnessValues = {120, 200, 255};
 
 #ifdef NIGHTMODE
     if(settings.brightness == Brightness::night)
@@ -226,6 +251,19 @@ void WordClock::setBrightness(bool showPreview) {
         preview.reset();
         previewMode = true;
     }
+}
+
+constexpr int roundUp(const int numToRound, const int multiple) { return ((numToRound + multiple - 1) / multiple) * multiple; }
+
+void WordClock::prepareAlarm() {
+    const RtcDateTime now = rtc.GetDateTime();
+
+    const int nextWakeup = roundUp(now.Minute() + 1, 5);
+    log_v("Next wakeup at %d minutes", nextWakeup);
+
+    DS3231AlarmTwo alarm(0, 0, nextWakeup, DS3231AlarmTwoControl::DS3231AlarmTwoControl_MinutesMatch);
+    rtc.SetAlarmTwo(alarm);
+    rtc.LatchAlarmsTriggeredFlags();
 }
 
 void WordClock::printDebugTime() {
@@ -248,13 +286,9 @@ void WordClock::printDebugTime() {
     log_d("----------------------------");
 }
 
-void WordClock::showSetup(WiFiManager*) {
-    log_v("AP started");
-    FastLED.clear();
-    lang.showSetup();
-    currentPalette = data::Green_p;
-    colorOutput(false);
-}
+void WordClock::setSetup(WiFiManager*) { wordClock.mode = Mode::wifi_setup; }
+
+void WordClock::setRunning() { wordClock.mode = Mode::running; }
 
 void WordClock::showReset() {
     log_v("Resetting settings");

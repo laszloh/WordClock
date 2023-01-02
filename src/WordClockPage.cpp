@@ -32,9 +32,7 @@ void WordClockPage::handleRoute() {
 
     TimeConfHTML += HTTP_SCRIPT;
     TimeConfHTML += F("<script>;window.addEventListener('load', function() { var now = new Date(); "
-                      "var offset = now.getTimezoneOffset() * 60000;"
-                      "var adjustedDate = new Date(now.getTime() - offset);"
-                      "document.getElementById('set-time').value = adjustedDate.toISOString().substring(0,16); });"
+                      "document.getElementById('set-time').value = now.toISOString().substring(0,16); });"
                       "</script>");
     TimeConfHTML += HTTP_STYLE;
     TimeConfHTML += F("<style>input[type='checkbox'][name='use-ntp-server']:not(:checked) ~.collapsable{display:none;}"
@@ -77,10 +75,14 @@ void WordClockPage::handleRoute() {
         TimeConfHTML += String(FPSTR(timezones[i][0])) + "</option>";
     }
     TimeConfHTML += F("</select><br><br>"
+                      "<label for='use-wifi'>Enable Wifi</label>"
+                      "<input value='1' type=checkbox name='use-wifi' id='use-wifi'");
+    TimeConfHTML += String(settings.wifiEnable ? "checked>" : ">");
+    TimeConfHTML += F("</select><br><br>"
                       "<label for='use-ntp-server'>Enable NTP Client</label> "
-                      " <input value='1' type=checkbox name='use-ntp-server' id='use-ntp-server'");
-    TimeConfHTML += String(settings.ntpEnabled ? "checked" : "");
-    TimeConfHTML += F("><br/>"
+                      "<input value='1' type=checkbox name='use-ntp-server' id='use-ntp-server'");
+    TimeConfHTML += String(settings.ntpEnabled ? "checked>" : ">");
+    TimeConfHTML += F("<br/>"
                       "<div class='collapsed'>"
                       "<label for='set-time'>Set Time (UTC)"
                       "<input style=width:auto name='set-time' step='1' id='set-time' type='datetime-local'></div>"
@@ -144,6 +146,12 @@ void WordClockPage::handleValues() {
             tzId = TZ_Names::TZ_Etc_UTC;
         settings.timezone = tzId;
     }
+
+    // WIFI
+    const String useWiFi = srv->arg("use-wifi");
+    log_v("useWiFi: %s", useWiFi.c_str());
+    const bool wifiEnabled = useWiFi.toInt() == 1;
+    settings.wifiEnable = wifiEnabled;
 
     // NTP
     const String useNtpServer = srv->arg("use-ntp-server");

@@ -3,7 +3,7 @@
 #define BUTA_PIN 14
 #define BUTB_PIN 12
 
-#define LED_PIN 2
+#define LED_PIN 0
 
 #define SDA_PIN 4
 #define SCL_PIN 5

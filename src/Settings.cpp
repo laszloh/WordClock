@@ -39,7 +39,7 @@ void convertToJson(const TimeStruct &t, JsonVariant dst) {
     dst["hour"] = t.hour;
     dst["minute"] = t.minute;
 }
-bool canConvertFromJson(JsonVariantConst src, const TimeStruct &) { return src["hour"].is<int>() && src["minte"].is<int>(); }
+bool canConvertFromJson(JsonVariantConst src, const TimeStruct &) { return src["hour"].is<int>() && src["minute"].is<int>(); }
 
 void convertFromJson(JsonVariantConst src, Brightness &b) { b = static_cast<Brightness>(src.as<uint8_t>()); }
 void convertToJson(const Brightness &b, JsonVariant dst) { dst.set(std::to_underlying(b)); }
@@ -91,6 +91,8 @@ bool Settings::loadSettings() {
 
     timezone = doc["timezone"] | TZ_Names::TZ_Europe_Vienna;
 
+    wifiEnable = doc["wifi"] | true;
+
     ntpEnabled = doc["ntp-enabled"] | true;
     ntpServer = doc["ntp-server"] | "europe.pool.ntp.org";
     syncInterval = doc["ntp-interval"] | 720;
@@ -123,6 +125,8 @@ void Settings::saveSettings() {
 
     doc["timezone"] = timezone;
 
+    doc["wifi"] = wifiEnable;
+
     doc["ntp-enabled"] = ntpEnabled;
     doc["ntp-server"] = ntpServer;
     doc["ntp-interval"] = syncInterval;
@@ -136,6 +140,10 @@ void Settings::saveSettings() {
     serializeJsonPretty(doc, Serial);
     serializeJson(doc, f);
     f.close();
+}
+
+void Settings::resetSettings(){
+    LittleFS.remove(cfgFile);
 }
 
 void Settings::cyclePalette() {

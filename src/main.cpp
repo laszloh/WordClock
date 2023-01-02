@@ -3,7 +3,10 @@
 #include <ESP8266WiFi.h>
 #include <FastLED.h>
 #include <LittleFS.h>
+#include <RTCMemory.h>
+#include <Schedule.h>
 #include <WiFiManager.h>
+#include <coredecls.h>
 
 #include "c++23.h"
 
@@ -16,20 +19,43 @@
 #include "WordClock.h"
 #include "WordClockPage.h"
 
-constexpr int serialBaud = 115200;
+constexpr int serialBaud = 74880;
 constexpr SerialConfig serialConfig = SERIAL_8N1;
 constexpr SerialMode serialMode = SERIAL_FULL;
+constexpr const char *wmProtalName PROGMEM = "WordClock Setup";
 
-inline void setupSerial() { Serial.begin(serialBaud, serialConfig, serialMode); }
+struct WiFiState {
+    uint32_t crc;
+    struct {
+        station_config fwconfig;
+        ip_info ip;
+        ip_addr_t dns[2];
+        ip_addr_t ntp[2];
+        WiFiMode_t mode;
+        uint8_t channel;
+        bool persistent;
+    } state;
+};
+
+struct RtcData {
+    WiFiState stateSave;
+    time_t now;
+};
 
 Button buttonA;
 Button buttonB;
-
 WiFiManager wm;
+RTCMemory<RtcData> rtcMemory;
+
+inline void setupSerial() { Serial.begin(serialBaud, serialConfig, serialMode); }
 
 void buttonAPressed() {
     if(buttonB.pressed()) {
         // start wifi manager
+        WiFi.resumeFromShutdown(rtcMemory.getData()->stateSave);
+
+        wordClock.setSetup(&wm);
+        wm.startConfigPortal(wmProtalName);
     } else {
         // cycle brightness
         settings.cycleBrightness();
@@ -60,8 +86,13 @@ void buttonBLongPress() {
     wordClock.adjustClock(-1);
 }
 
+RF_PRE_INIT() { system_phy_set_powerup_option(2); }
+
 void setup() {
     setupSerial();
+    rtcMemory.begin();
+
+    WiFi.shutdown(rtcMemory.getData()->stateSave);
 
     log_i(SKETCHNAME " starting up...");
     log_i("Clock type: " CLOCKNAME);
@@ -124,6 +155,15 @@ void setup() {
     buttonB.attachClickCallback(buttonBPressed);
     buttonB.attachLogPressStop(buttonBLongPress);
 
+    // boot up the wifi and the wifi manager
+    wordClockPage.begin(&wm);
+    wm.setAPCallback(WordClock::setSetup);
+    wm.setConfigResetCallback(Settings::resetSettings);
+    wm.setSaveConfigCallback([]() { WordClock::setRunning(); });
+    wm.setConfigPortalBlocking(false);
+    wm.setCountry("JP");
+    wm.setBreakAfterConfig(true);
+
     // check if we should reset our settings
     if(buttonA.pressedRaw() && buttonB.pressedRaw()) {
         wordClock.showReset();
@@ -132,13 +172,27 @@ void setup() {
         ESP.restart();
     }
 
-    // boot up the wifi and the wifi manager
-    wordClockPage.begin(&wm);
-    wm.setAPCallback(std::bind(&WordClock::showSetup, wordClock, std::placeholders::_1));
-    wm.autoConnect("WordClock Setup");
+    if(settings.wifiEnable) {
+        WiFi.resumeFromShutdown(rtcMemory.getData()->stateSave);
+
+        wm.autoConnect(wmProtalName);
+    }
+}
+
+void IRAM_ATTR wakeupCallback() {
+    wordClock.getTimeFromRtc();
+    schedule_function([]() { log_d("Callback"); });
+}
+
+void IRAM_ATTR wakeupPinIsrWE() {
+    // Wakeup IRQs are available as level-triggered only.
+    detachInterrupt(RTCINT_PIN);
+    schedule_function([]() { log_d("GPIO wakeup IRQ"); });
 }
 
 void loop() {
+    wm.process();
+
     wordClock.loop();
     settings.loop();
     buttonA.loop();
@@ -152,33 +206,34 @@ void loop() {
     if(printTime)
         wordClock.printDebugTime();
 
-    // static CEveryNSeconds simulate(5);
-    // if(simulate) {
-    //     static bool firstButton = false;
+    // don't go to sleep if we are in a setup mode
+    if(wordClock.getMode() != WordClock::Mode::running)
+        return;
 
-    //     log_d("Simulation button %c press", (firstButton) ? 'A' : 'B');
-    //     if(firstButton)
-    //         buttonAPressed();
-    //     else
-    //         buttonBPressed();
-    //     // firstButton = !firstButton;
-    // }
+    wordClock.latchAlarmflags();
+    while(!digitalRead(RTCINT_PIN)) {
+        log_d("wait for INT-HIGH");
+        delay(1);
+    }
+    log_d("preparing for sleep");
+    Serial.flush();
 
-    // wordClock.latchAlarmflags();
-    // while(!digitalRead(RTCINT_PIN)){
-    //     log_d("wait for INT-HIGH");
-    //     delay(1);
-    // }
-    // log_d("preparing for sleep");
-    // wifi_station_disconnect(); // not needed
-    // wifi_set_opmode(NULL_MODE);
-    // wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
-    // wifi_fpm_open();
+    WiFi.shutdown(rtcMemory.getData()->stateSave);
+    wifi_fpm_close();
+    wifi_set_opmode(NULL_MODE);
+    wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+    wifi_fpm_open();
+    wifi_fpm_set_wakeup_cb(wakeupCallback);
+    attachInterrupt(RTCINT_PIN, wakeupPinIsrWE, ONLOW_WE);
     // gpio_pin_wakeup_enable(GPIO_ID_PIN(RTCINT_PIN), GPIO_PIN_INTR_LOLEVEL);
-    // wifi_fpm_set_wakeup_cb(WordClock::wakeupCallback);
-    // wifi_fpm_do_sleep(0xFFFFFFFF);
-    // delay(100);
+    wifi_fpm_do_sleep(0xFFFFFFFF);
+    delay(100);
+    // esp_yield();
 
-    // log_d("woke up");
-    // wordClock.printTime();
+    if(settings.wifiEnable)
+        WiFi.resumeFromShutdown(rtcMemory.getData()->stateSave);
+
+    log_d("woke up");
+    wordClock.printDebugTime();
+    wordClock.prepareAlarm();
 }
