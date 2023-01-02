@@ -235,5 +235,5 @@ void loop() {
 
     log_d("woke up");
     wordClock.printDebugTime();
-    wordClock.prepareAlarm();
+    // wordClock.prepareAlarm();
 }

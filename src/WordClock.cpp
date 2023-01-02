@@ -120,7 +120,10 @@ void WordClock::begin() {
     pinMode(RTCINT_PIN, INPUT);
     rtc.Enable32kHzPin(false);
     rtc.SetSquareWavePin(DS3231SquareWavePin_ModeAlarmTwo);
-    prepareAlarm();
+    DS3231AlarmTwo alarm(0, 0, 0, DS3231AlarmTwoControl::DS3231AlarmTwoControl_OncePerMinute);
+    rtc.SetAlarmTwo(alarm);
+    rtc.LatchAlarmsTriggeredFlags();
+    // prepareAlarm();
 
     mode = Mode::init;
 
@@ -194,6 +197,9 @@ void WordClock::loop() {
 
     if(preview)
         previewMode = false;
+
+    // change the color
+    startColor += 20;
 
     // color the leds
     if(updateOutput || previewMode)
