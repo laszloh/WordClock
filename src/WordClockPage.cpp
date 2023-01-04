@@ -11,6 +11,8 @@
 #include "genTimezone.h"
 
 constexpr const char *menuhtml PROGMEM = "<form action='/custom' method='get'><button>Setup Clock</button></form><br/>";
+constexpr std::array<std::pair<int, const char *>, 5> syncDefault PROGMEM
+    = {{{60, "Hourly"}, {240, "Every 12 hour"}, {1140, "Daily"}, {2880, "Every 2 days"}, {10080, "Weekly"}}};
 
 WordClockPage wordClockPage;
 
@@ -75,7 +77,7 @@ void WordClockPage::handleRoute() {
         TimeConfHTML += String(FPSTR(timezones[i][0])) + "</option>";
     }
     TimeConfHTML += F("</select><br><br>"
-                      "<label for='use-wifi'>Enable Wifi</label>"
+                      "<label for='use-wifi'>Enable portal on startup (wifi always on)</label>"
                       "<input value='1' type=checkbox name='use-wifi' id='use-wifi'");
     TimeConfHTML += String(settings.wifiEnable ? "checked>" : ">");
     TimeConfHTML += F("</select><br><br>"
@@ -94,14 +96,12 @@ void WordClockPage::handleRoute() {
     TimeConfHTML += F("'><br>"
                       "<label for='ntp-interval'>Sync interval:</label>"
                       "<select id='ntp-interval' name='ntp-interval'>");
-    constexpr std::array syncDefaults = std::make_array(60, 240, 1140, 2800, 10080);
-    TimeConfHTML += F("<option value=60>Hourly</option>"
-                      "<option value=240>Every 4 hours</option>"
-                      "<option value=720 selected>Every 12 hours</option>"
-                      "<option value=1440>Daily</option>"
-                      "<option value=2880>Every 2 Days</option>"
-                      "<option value=10080>Weekly</option>"
-                      "</select><br>"
+    for(const auto &[min, name] : syncDefault) {
+        TimeConfHTML += F("<option value='") + String(min);
+        TimeConfHTML += (settings.syncInterval == min) ? "' selected>" : "'>";
+        TimeConfHTML += String(name) + "</option>";
+    }
+    TimeConfHTML += F("</select><br>"
                       "</div>");
     TimeConfHTML += F("<h2>Night Mode Setup</h2>"
                       "<label for='use-night-mode'>Enable automatic Night Mode</label> "
