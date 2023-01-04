@@ -51,11 +51,7 @@ bool canConvertFromJson(JsonVariantConst src, const Brightness &) {
 Brightness &operator++(Brightness &b, int) {
     b = static_cast<Brightness>(std::to_underlying(b) + 1);
     if(b == Brightness::END_OF_LIST) {
-#ifdef NIGHTMODE
-        b = Brightness::night;
-#else
         b = Brightness::low;
-#endif
     }
     return b;
 }

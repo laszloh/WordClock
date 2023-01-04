@@ -204,7 +204,7 @@ void WordClock::loop() {
 }
 
 void WordClock::colorOutput(bool nightMode) {
-    log_d("Coloring output (nightmode %d)", nightMode);
+    // log_d("Coloring output (nightmode %d)", nightMode);
     if(nightMode) {
         FastLED.setDither(0);
         FastLED.setBrightness(255);
@@ -233,18 +233,19 @@ bool WordClock::isNightmode(const struct tm& tm) const {
     return settings.nmEnable && (start < tm || end > tm || forceNightMode);
 }
 
-void WordClock::setPalette(bool showPreview) {
+void WordClock::setPalette(bool force) {
     currentPalette = *data::colorPalettes[settings.palette];
 
-    if(showPreview) {
-        preview.reset();
-        previewMode = true;
-    }
+    if(force)
+        lastMinute = -1;
 }
 
 
-void WordClock::setBrightness(bool showPreview) {
+void WordClock::setBrightness(bool force) {
     constexpr std::array brightnessValues = {120, 200, 255};
+
+    if(force)
+        lastMinute = -1;
 
 #ifdef NIGHTMODE
     if(settings.brightness == Brightness::night)
@@ -255,11 +256,6 @@ void WordClock::setBrightness(bool showPreview) {
         const auto newBrightness = BrightnessToIndex(settings.brightness);
         FastLED.setBrightness(brightnessValues[newBrightness]);
         forceNightMode = false;
-    }
-
-    if(showPreview) {
-        preview.reset();
-        previewMode = true;
     }
 }
 
@@ -280,7 +276,9 @@ void WordClock::prepareAlarm() {
         return;
     }
 
-    const int nextWakeup = roundUp(tm.tm_min + 1, 5);
+    int nextWakeup = roundUp(tm.tm_min + 1, 5);
+    if(nextWakeup >= 60)
+        nextWakeup = 0;
     log_v("Next wakeup at %d minutes", nextWakeup);
 
     rtc.SetAlarmTwo(DS3231AlarmTwo(0, 0, nextWakeup, DS3231AlarmTwoControl::DS3231AlarmTwoControl_MinutesMatch));
@@ -309,7 +307,11 @@ void WordClock::printDebugTime() {
 
 void WordClock::setSetup(WiFiManager*) { wordClock.mode = Mode::wifi_setup; }
 
-void WordClock::setRunning() { wordClock.mode = Mode::running; }
+void WordClock::setRunning() {
+    wordClock.setBrightness();
+    wordClock.setPalette();
+    wordClock.mode = Mode::running;
+}
 
 void WordClock::showReset() {
     log_v("Resetting settings");

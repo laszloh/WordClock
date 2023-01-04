@@ -46,18 +46,20 @@ void WordClockPage::handleRoute() {
     TimeConfHTML += F("<h1>WordClock Settings</h1>"
                       "<p>Brightness</p>"
                       "<input style='display: inline-block;' type='radio' id='choice1' name='brightness' value='0' ");
-    TimeConfHTML += (brightness == 0) ? "checked" : "";
-    TimeConfHTML += F("><label for='choice1'>Low</label><br/>"
+    TimeConfHTML += (brightness == 0) ? "checked>" : ">";
+    TimeConfHTML += F("<label for='choice1'>Low</label><br/>"
                       "<input style='display: inline-block;' type='radio' id='choice2' name='brightness' value='1' ");
-    TimeConfHTML += (brightness == 1) ? "checked" : "";
-    TimeConfHTML += F("><label for='choice2'>Medium</label><br/>"
+    TimeConfHTML += (brightness == 1) ? "checked>" : ">";
+    TimeConfHTML += F("<label for='choice2'>Medium</label><br/>"
                       "<input style='display: inline-block;' type='radio' id='choice3' name='brightness' value='2' ");
-    TimeConfHTML += (brightness == 2) ? "checked" : "";
-    TimeConfHTML += F("><label for='choice3'>high</label><br/>"
-                      "<input style='display: inline-block;' type='radio' id='choice4' name='brightness' value='3' ");
-    TimeConfHTML += (brightness == 2) ? "checked" : "";
-    TimeConfHTML += F("><label for='choice4'>night</label><br/>"
-                      "<br/>"
+    TimeConfHTML += (brightness == 2) ? "checked>" : ">";
+    TimeConfHTML += F("<label for='choice3'>high</label><br/>");
+#ifdef NIGHTMODE
+    TimeConfHTML += F("<input style='display: inline-block;' type='radio' id='choice4' name='brightness' value='3' ");
+    TimeConfHTML += (brightness == 3) ? "checked>" : ">";
+    TimeConfHTML += F("<label for='choice4'>night</label>");
+#endif
+    TimeConfHTML += F("<br /><br /> "
                       "<label for='palette'>Color Palette</label>"
                       "<select name='palette' id='palette' class='button'>");
     uint8_t i = 0;

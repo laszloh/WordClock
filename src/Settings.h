@@ -74,7 +74,15 @@ struct TimeStruct {
     }
 };
 
-enum class Brightness : uint8_t { low = 0, mid, high, night, END_OF_LIST };
+enum class Brightness : uint8_t {
+    low = 0,
+    mid,
+    high,
+#ifdef NIGHTMODE
+    night,
+#endif
+    END_OF_LIST
+};
 Brightness &operator++(Brightness &b, int);
 inline uint8_t BrightnessToIndex(Brightness &b) {
     if(b >= Brightness::END_OF_LIST)

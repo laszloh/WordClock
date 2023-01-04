@@ -22,8 +22,8 @@ public:
     void adjustInternalTime(time_t newTime) const;
     void getTimeFromRtc() { adjustInternalTime(rtc.GetDateTime().Epoch32Time()); }
 
-    void setBrightness(bool preview = false);
-    void setPalette(bool preview = false);
+    void setBrightness(bool force = false);
+    void setPalette(bool force = false);
 
     void printDebugTime();
     void latchAlarmflags() { rtc.LatchAlarmsTriggeredFlags(); }
@@ -33,7 +33,7 @@ public:
     void showReset();
     static void timeUpdate(bool sntp);
 
-    const Mode &getMode() const { return mode; }
+    bool isBusy() const { return mode != Mode::running; }
     void prepareAlarm();
 
 private:
@@ -45,14 +45,14 @@ private:
     Rtc rtc{rtcInstance()};
     Mode mode{Mode::init};
 
-    uint8_t lastMinute;
+    int8_t lastMinute;
 
     bool previewMode{false};
     CEveryNSeconds preview{CEveryNBSeconds(2)};
 
     // coloring stuff
     bool forceNightMode{false};
-    const CHSV nightHSV{CHSV(0, 255, 70)};
+    const CHSV nightHSV{CHSV(0, 255, 100)};
 
     CRGBPalette16 currentPalette;
     uint8_t startColor{0};

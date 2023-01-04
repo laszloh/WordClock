@@ -1,25 +1,36 @@
 
 #include <Arduino.h>
+#include <Schedule.h>
+
+#include <c++23.h>
 
 #include "Button.h"
-#include <c++23.h>
+#include "esp-hal-log.h"
 
 void Button::begin(uint8_t pin, bool activeLow, bool intPullup) {
     _pin = pin;
     _buttonPressed = !activeLow;
 
     pinMode(pin, (intPullup) ? INPUT_PULLUP : INPUT);
-    attachInterruptArg(pin, Button::interruptHandler, this, CHANGE);
 }
 
 void Button::loop() {
-    if(_pin && _interruptTrigger) {
-        _interruptTrigger = false;
+    if(_pin)
         tick(digitalRead(_pin) == _buttonPressed);
-    }
 }
 
-void ICACHE_RAM_ATTR Button::interruptHandler(void *button) { static_cast<Button *>(button)->_interruptTrigger = true; }
+void IRAM_ATTR Button::levelInterruptHandler(void *button) {
+    Button *btn = static_cast<Button *>(button);
+    if(btn == nullptr)
+        return;
+
+    detachInterrupt(btn->_pin);
+    schedule_function([]() { log_d("GPIO wakeup IRQ"); });
+}
+
+void Button::armWakeup() {
+    attachInterruptArg(_pin, Button::levelInterruptHandler, this, ONLOW_WE);
+}
 
 void Button::tick(bool activeLevel) {
     const auto now = millis();

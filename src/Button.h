@@ -20,6 +20,9 @@ public:
     bool pressedRaw() { return digitalRead(_pin) == _buttonPressed; }
     bool releasedRaw() { return digitalRead(_pin) != _buttonPressed; }
 
+    void armWakeup();
+    bool isBusy() const { return _state != StateMachine::init; }
+
     void setDebounceMs(uint16_t ms) { _debounceTime = ms; }
     void setClickMs(uint16_t ms) { _clickTime = ms; }
     void setPressMs(uint16_t ms) { _pressTime = ms; }
@@ -41,7 +44,7 @@ public:
 private:
     static constexpr uint8_t maxNrClicks = 100;
 
-    static void interruptHandler(void *button);
+    static void levelInterruptHandler(void *button);
 
     enum class StateMachine : uint8_t { init = 0, down, up, count, press, pressEnd };
 
@@ -65,7 +68,7 @@ private:
     bool _interruptTrigger{false};
 
     uint16_t _debounceTime{50};
-    uint16_t _clickTime{300};
+    uint16_t _clickTime{400};
     uint16_t _pressTime{900};
 
     CallbackFunction _clickCb{nullptr};

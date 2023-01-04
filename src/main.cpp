@@ -50,29 +50,24 @@ RTCMemory<RtcData> rtcMemory;
 inline void setupSerial() { Serial.begin(serialBaud, serialConfig, serialMode); }
 
 void buttonAPressed() {
-    if(buttonB.pressed()) {
+    // cycle brightness
+    settings.cycleBrightness();
+    wordClock.setBrightness();
+}
+
+void buttonBPressed() {
+    // cycle palette
+    settings.cyclePalette();
+    wordClock.setPalette();
+}
+
+void buttonALongPress() {
+    if(buttonB.longPress()) {
         // start wifi manager
         WiFi.resumeFromShutdown(rtcMemory.getData()->stateSave);
 
         wordClock.setSetup(&wm);
         wm.startConfigPortal(wmProtalName);
-    } else {
-        // cycle brightness
-        settings.cycleBrightness();
-    }
-}
-
-void buttonBPressed() {
-    if(buttonA.pressed())
-        return;
-
-    // cycle palette
-    settings.cyclePalette();
-}
-
-void buttonALongPress() {
-    if(buttonB.longPress()) {
-        // start clock setup
     } else {
         // adjust clock by +1 hour
     }
@@ -149,18 +144,18 @@ void setup() {
     // set up buttons
     buttonA.begin(BUTA_PIN);
     buttonA.attachClickCallback(buttonAPressed);
-    buttonA.attachLogPressStop(buttonALongPress);
+    buttonA.attachLogPressStart(buttonALongPress);
 
     buttonB.begin(BUTB_PIN);
     buttonB.attachClickCallback(buttonBPressed);
-    buttonB.attachLogPressStop(buttonBLongPress);
+    buttonB.attachLogPressStart(buttonBLongPress);
     log_i("Buttons attached");
 
     // boot up the wifi and the wifi manager
     wordClockPage.begin(&wm);
     wm.setAPCallback(WordClock::setSetup);
     wm.setConfigResetCallback(Settings::resetSettings);
-    wm.setSaveConfigCallback([]() { WordClock::setRunning(); });
+    wm.setConfigProtalExitCallback([]() { WordClock::setRunning(); });
     wm.setConfigPortalBlocking(false);
     wm.setCountry("JP");
     wm.setBreakAfterConfig(true);
@@ -198,6 +193,11 @@ void IRAM_ATTR wakeupPinIsrWE() {
 }
 
 void loop() {
+    static bool busy = true;
+    static CEveryNMillis resetBusy(500);
+    if(resetBusy)
+        busy = false;
+
     wm.process();
 
     wordClock.loop();
@@ -213,8 +213,8 @@ void loop() {
     if(printTime)
         wordClock.printDebugTime();
 
-    // don't go to sleep if we are in a setup mode
-    if(wordClock.getMode() != WordClock::Mode::running)
+    // don't go to sleep if any subroutine is still working
+    if(busy | wordClock.isBusy() || buttonA.isBusy() || buttonB.isBusy() || wm.getConfigPortalActive())
         return;
 
     wordClock.latchAlarmflags();
@@ -232,6 +232,8 @@ void loop() {
     wifi_fpm_open();
     wifi_fpm_set_wakeup_cb(wakeupCallback);
     attachInterrupt(RTCINT_PIN, wakeupPinIsrWE, ONLOW_WE);
+    buttonA.armWakeup();
+    buttonB.armWakeup();
     wifi_fpm_do_sleep(0xFFFFFFFF);
     delay(100);
 
@@ -241,4 +243,7 @@ void loop() {
     log_d("woke up");
     wordClock.printDebugTime();
     wordClock.prepareAlarm();
+
+    resetBusy.reset();
+    busy = true;
 }
