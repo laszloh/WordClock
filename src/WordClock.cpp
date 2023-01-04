@@ -298,9 +298,17 @@ void WordClock::setRunning() { wordClock.mode = Mode::running; }
 
 void WordClock::showReset() {
     log_v("Resetting settings");
-    FastLED.clear();
-    lang.showReset();
     currentPalette = data::Red_p;
+    FastLED.setBrightness(255);
+
+    for(int i = 0; i < 10; i++) {
+        // blink reset text
+        FastLED.clear();
+        if(i % 2)
+            lang.showReset();
+        colorOutput(false);
+        delay(500);
+    }
 }
 
 void WordClock::adjustInternalTime(time_t newTime) const {

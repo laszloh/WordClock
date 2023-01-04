@@ -48,12 +48,10 @@ public:
     }
 
     virtual void showReset() override final {
-        showWord(0);
-        showWord(1);
-        showWord(6);
-        showWord(9);
-        showHour(10);
-        showHour(2);
+        // SETT
+        leds[88] = leds[85] = leds[92] = leds[70] = markerHSV;
+        // RESET
+        leds[41] = leds[33] = leds[34] = leds[45] = leds[30] = markerHSV;
     }
 
     static constexpr size_t getLedCount() { return 98; }

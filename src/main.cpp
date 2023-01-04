@@ -166,10 +166,13 @@ void setup() {
 
     // check if we should reset our settings
     if(buttonA.pressedRaw() && buttonB.pressedRaw()) {
+        log_w("Resetting settings!");
         wordClock.showReset();
-        delay(5000);
+        // we delayed already 5s, if the buttons are still pressed, reset
+        if(buttonA.pressedRaw() && buttonB.pressedRaw()) {
         wm.resetSettings();
         ESP.restart();
+        }
     }
 
     if(settings.wifiEnable) {
