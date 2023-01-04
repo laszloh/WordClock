@@ -154,6 +154,7 @@ void setup() {
     buttonB.begin(BUTB_PIN);
     buttonB.attachClickCallback(buttonBPressed);
     buttonB.attachLogPressStop(buttonBLongPress);
+    log_i("Buttons attached");
 
     // boot up the wifi and the wifi manager
     wordClockPage.begin(&wm);
@@ -163,6 +164,7 @@ void setup() {
     wm.setConfigPortalBlocking(false);
     wm.setCountry("JP");
     wm.setBreakAfterConfig(true);
+    log_i("WiFi manager setup complete");
 
     // check if we should reset our settings
     if(buttonA.pressedRaw() && buttonB.pressedRaw()) {
@@ -170,16 +172,18 @@ void setup() {
         wordClock.showReset();
         // we delayed already 5s, if the buttons are still pressed, reset
         if(buttonA.pressedRaw() && buttonB.pressedRaw()) {
-        wm.resetSettings();
-        ESP.restart();
+            wm.resetSettings();
+            ESP.restart();
         }
     }
 
     if(settings.wifiEnable) {
+        log_i("Wifi manager started");
         WiFi.resumeFromShutdown(rtcMemory.getData()->stateSave);
-
         wm.autoConnect(wmProtalName);
     }
+
+    log_i("Setup finished");
 }
 
 void IRAM_ATTR wakeupCallback() {
@@ -228,15 +232,13 @@ void loop() {
     wifi_fpm_open();
     wifi_fpm_set_wakeup_cb(wakeupCallback);
     attachInterrupt(RTCINT_PIN, wakeupPinIsrWE, ONLOW_WE);
-    // gpio_pin_wakeup_enable(GPIO_ID_PIN(RTCINT_PIN), GPIO_PIN_INTR_LOLEVEL);
     wifi_fpm_do_sleep(0xFFFFFFFF);
     delay(100);
-    // esp_yield();
 
     if(settings.wifiEnable)
         WiFi.resumeFromShutdown(rtcMemory.getData()->stateSave);
 
     log_d("woke up");
     wordClock.printDebugTime();
-    // wordClock.prepareAlarm();
+    wordClock.prepareAlarm();
 }
