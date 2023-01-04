@@ -37,7 +37,8 @@ public:
     void prepareAlarm();
 
 private:
-    void colorOutput(bool nightMode);
+    void colorOutput(bool nightMode = false);
+    bool isNightmode(const struct tm &tm) const;
 
     LangImpl lang;
     CRGBArray<LangImpl::getLedCount()> leds;

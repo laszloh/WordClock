@@ -141,19 +141,16 @@ void WordClock::begin() {
 
 void WordClock::loop() {
     bool updateOutput = false;
-    const auto start = settings.nmStartTime;
-    const auto end = settings.nmEndTime;
     const time_t now = time(nullptr);
     struct tm tm;
 
     localtime_r(&now, &tm);
+    bool nightMode = isNightmode(tm);
 
     // update the LEDs
     lang.showTime(&tm);
     setBrightness();
     setPalette();
-
-    bool nightMode = settings.nmEnable && (start < tm || end > tm || forceNightMode);
 
     switch(mode) {
         case Mode::init:
@@ -229,6 +226,13 @@ void WordClock::colorOutput(bool nightMode) {
     FastLED.show();
 }
 
+bool WordClock::isNightmode(const struct tm& tm) const {
+    const auto start = settings.nmStartTime;
+    const auto end = settings.nmEndTime;
+
+    return settings.nmEnable && (start < tm || end > tm || forceNightMode);
+}
+
 void WordClock::setPalette(bool showPreview) {
     currentPalette = *data::colorPalettes[settings.palette];
 
@@ -262,13 +266,24 @@ void WordClock::setBrightness(bool showPreview) {
 constexpr int roundUp(const int numToRound, const int multiple) { return ((numToRound + multiple - 1) / multiple) * multiple; }
 
 void WordClock::prepareAlarm() {
-    const RtcDateTime now = rtc.GetDateTime();
+    const time_t now = time(nullptr);
+    struct tm tm;
 
-    const int nextWakeup = roundUp(now.Minute() + 1, 5);
+    localtime_r(&now, &tm);
+    const bool nightMode = isNightmode(tm);
+
+    // setup next wake event, dependent on the state of night mode
+    if(!nightMode) {
+        // wake up every minute
+        rtc.SetAlarmTwo(DS3231AlarmTwo(0, 0, 0, DS3231AlarmTwoControl::DS3231AlarmTwoControl_OncePerMinute));
+        rtc.LatchAlarmsTriggeredFlags();
+        return;
+    }
+
+    const int nextWakeup = roundUp(tm.tm_min + 1, 5);
     log_v("Next wakeup at %d minutes", nextWakeup);
 
-    DS3231AlarmTwo alarm(0, 0, nextWakeup, DS3231AlarmTwoControl::DS3231AlarmTwoControl_MinutesMatch);
-    rtc.SetAlarmTwo(alarm);
+    rtc.SetAlarmTwo(DS3231AlarmTwo(0, 0, nextWakeup, DS3231AlarmTwoControl::DS3231AlarmTwoControl_MinutesMatch));
     rtc.LatchAlarmsTriggeredFlags();
 }
 
