@@ -196,7 +196,9 @@ void WordClock::loop() {
         previewMode = false;
 
     // change the color
-    startColor += 20;
+    static CEveryNSeconds changeColor(30);
+    if(changeColor)
+        startColor += 10;
 
     // color the leds
     if(updateOutput || previewMode)
