@@ -192,6 +192,11 @@ void IRAM_ATTR wakeupPinIsrWE() {
     schedule_function([]() { log_d("GPIO wakeup IRQ"); });
 }
 
+uint32_t get_millisecond_timer() {
+    // our take on the millis() timer, since we only need it for some delay stuff
+    return (system_get_rtc_time() * (system_rtc_clock_cali_proc() >> 12)) / 1000;
+}
+
 void loop() {
     static bool busy = true;
     static CEveryNMillis resetBusy(500);
