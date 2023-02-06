@@ -94,7 +94,8 @@ bool Settings::loadSettings() {
     syncInterval = doc["ntp-interval"] | 720;
 
 #ifdef NIGHTMODE
-    nmEnable = doc["nm-endable"] | false;
+    nmEnable = doc["nm-endable"] | true;
+    nmAutomatic = doc["nm-automatic"] | true;
     nmStartTime = doc["nm-start"] | TimeStruct{20, 00};
     nmEndTime = doc["nm-end"] | TimeStruct{10, 00};
 #endif

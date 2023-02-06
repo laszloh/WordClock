@@ -108,6 +108,7 @@ public:
     // night light
 #ifdef NIGHTMODE
     bool nmEnable;
+    bool nmAutomatic;
     TimeStruct nmStartTime;
     TimeStruct nmEndTime;
 #endif

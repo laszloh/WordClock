@@ -106,9 +106,12 @@ void WordClockPage::handleRoute() {
     TimeConfHTML += F("</select><br>"
                       "</div>");
     TimeConfHTML += F("<h2>Night Mode Setup</h2>"
-                      "<label for='use-night-mode'>Enable automatic Night Mode</label> "
-                      " <input value='1' type=checkbox name='use-night-mode' id='use-night-mode'");
+                      "<label for='use-night-mode'>Enable Night Mode</label>"
+                      "<input value='1' type=checkbox name='use-night-mode' id='use-night-mode'");
     TimeConfHTML += String(settings.nmEnable ? "checked>" : ">");
+    TimeConfHTML += F("<br><label for='nm-auto'>Use Sunrise/Sunset for Night Mode</label>"
+                      "<input value='1' type=checkbox name='nm-auto' id='nm-auto'");
+    TimeConfHTML += String(settings.nmAutomatic ? "checked>" : ">");
     TimeConfHTML += F("<br><label for='nm-start'>Start Time:</label><input style=width:auto type='time' name='nm-start' id='nm-start' value='");
     TimeConfHTML += settings.nmStartTime.toString() + "'>";
     TimeConfHTML += F("<br><label for='nm-end'>End Time:</label><input style=width:auto type='time' name='nm-end' id='nm-end' value='");
@@ -207,6 +210,11 @@ void WordClockPage::handleValues() {
     settings.nmEnable = nmEnable;
 
     if(nmEnable) {
+        // get the automatic mode
+        const String nmAuto = srv->arg("nm-auto");
+        log_v("nmAuto: %s", nmAuto.c_str());
+        settings.nmAutomatic = nmAuto.toInt() == 1;
+
         // get the start time
         const String nmStart = srv->arg("nm-start");
         log_v("nmStart: %s", nmStart.c_str());

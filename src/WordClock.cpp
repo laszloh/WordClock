@@ -229,8 +229,34 @@ void WordClock::colorOutput(bool nightMode) {
 }
 
 bool WordClock::isNightmode(const struct tm& tm) const {
-    const auto start = settings.nmStartTime;
-    const auto end = settings.nmEndTime;
+    auto start = settings.nmStartTime;
+    auto end = settings.nmEndTime;
+
+    if(settings.nmAutomatic) {
+        // automatic mode, calculate sunrise and sunset
+        const uint32_t sunrise = 289 + 116 * cos((tm.tm_yday + 8) / 58.09);
+        const uint32_t sunset =  1019.5 - 119.5 * cos((tm.tm_yday + 8) / 58.09);
+
+        struct tm tmp = tm;
+        time_t time = 0;
+
+        // convert UTC to local time for the sunset
+        tmp.tm_hour = sunset / 60;
+        time = mktime(&tmp);
+        localtime_r(&time, &tmp);
+        tmp.tm_min = sunset % 60;
+        start.hour = sunrise / 60;
+        start.minute = sunrise % 60;
+
+
+        // convert UTC to local time for the sunrise
+        tmp.tm_hour = sunrise / 60;
+        tmp.tm_min = sunrise % 60;
+        time = mktime(&tmp);
+        localtime_r(&time, &tmp);
+        end.hour = sunset / 60;
+        end.minute = sunset % 60;
+    }
 
     return settings.nmEnable && (start < tm || end > tm || forceNightMode);
 }
